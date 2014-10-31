@@ -328,7 +328,7 @@ class String:
     )
 
     def __init__(self, encoding=None):
-        self._encoding = Encoding.UTF8;
+        self._encoding = Encoding.UTF8
 
         if encoding is not None:
             self._encoding = encoding.value
@@ -851,6 +851,7 @@ class VariantFull(TypeWithEntries):
         variant = fmt.format(name, str(self._tag), entries)
 
         return variant
+
 
 class Variant:
     grammar = [VariantFull, VariantRef]
