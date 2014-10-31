@@ -1,5 +1,11 @@
+import enum
 import re
 import pypeg2
+
+
+class StrNameEnum(enum.Enum):
+    def __str__(self):
+        return self.name
 
 
 class List:
@@ -97,10 +103,10 @@ class SizeAssignment(SimpleValue):
         super().__init__(integer.value)
 
 
-class ByteOrder:
-    NATIVE = 'native'
-    BE = 'be'
-    LE = 'le'
+class ByteOrder(StrNameEnum):
+    NATIVE = 0
+    BE = 1
+    LE = 2
 
 
 class ByteOrderAssignment(SimpleValue):
@@ -158,10 +164,10 @@ class BaseAssignment(SimpleValue):
         super().__init__(value)
 
 
-class Encoding:
-    NONE = 'none'
-    UTF8 = 'utf-8'
-    ASCII = 'ascii'
+class Encoding(StrNameEnum):
+    NONE = 0
+    UTF8 = 1
+    ASCII = 2
 
 
 class EncodingAssignment(SimpleValue):

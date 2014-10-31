@@ -38,6 +38,8 @@ struct zorg {
             exp_dig = 31;
             mant_dig = 1; // C++-style comment
         } RANGE;
+
+        string TWO;
     } mystere[12][a->ohwow];
 
     enum malamala : int {
@@ -50,4 +52,10 @@ struct zorg {
     struct watatatow yeah;
 
     type mega_array[1][2][3][4][5][a->b][a->b.c][a->b.c->d][a->b.c->d[(a->e)]];
+
+    string lol;
+
+    string {
+        encoding = ASCII;
+    } blizzard;
 } align(32)
