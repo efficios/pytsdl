@@ -69,10 +69,18 @@ class ConstInteger(SimpleValue):
 
 
 class ConstNumber(SimpleValue):
-    grammar = ConstInteger
+    grammar = pypeg2.optional(re.compile(r'[+-]')), ConstInteger
 
-    def __init__(self, number):
-        super().__init__(number.value)
+    def __init__(self, args):
+        mul = 1;
+
+        if len(args) == 2:
+            if args[0] == '-':
+                mul = -1
+
+            args.pop(0)
+
+        super().__init__(args[0].value * mul)
 
 
 class Identifier:
