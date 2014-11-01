@@ -29,7 +29,10 @@ Then install pytsdl:
 using
 -----
 
-Have a look at [`test.py`](test.py).
+Have a look at [`test.py`](test.py). Run the test like this once
+pytsdl is installed:
+
+    python3 test.py sample.tsdl
 
 
 features
