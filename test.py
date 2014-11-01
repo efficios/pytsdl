@@ -7,6 +7,16 @@ if __name__ == '__main__':
         tsdl = f.read()
 
     parser = pytsdl.Parser()
-    ast = parser.parse(tsdl)
+    doc = parser.parse(tsdl)
 
-    print(ast)
+    print(doc.trace)
+    print(doc.env)
+
+    for clock in doc.clocks:
+        print(clock)
+
+    for stream in doc.streams:
+        print(stream)
+
+    for event in doc.events:
+        print(event)

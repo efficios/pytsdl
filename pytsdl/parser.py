@@ -774,6 +774,13 @@ class StructRef:
 class Scope:
     def _set_entries(self, entries):
         self._entries = entries
+        self._entries_dict = {}
+
+        for entry in self._entries:
+            if type(entry) is ValueAssignment:
+                self._entries_dict[entry.key] = entry.value
+
+            # TODO: fill entries dict with type assignments
 
     @property
     def entries(self):
@@ -788,6 +795,9 @@ class Scope:
         s += '</entries>'
 
         return s
+
+    def __getitem__(self, key):
+        return self._entries_dict[key]
 
 
 class StructFull(Scope):
@@ -1059,6 +1069,10 @@ Top.grammar = pypeg2.maybe_some((
 ))
 
 
+class Doc:
+    pass
+
+
 class ParseError(RuntimeError):
     def __init__(self, str):
         super().__init__(str)
@@ -1075,7 +1089,7 @@ class Parser:
         return ast
 
     @staticmethod
-    def resolve_type(scope_stores, typeid):
+    def _resolve_type(scope_stores, typeid):
         for scope_store in reversed(scope_stores):
             if typeid in scope_store:
                 resolved = scope_store[typeid]
@@ -1088,19 +1102,19 @@ class Parser:
         raise ParseError('cannot resolve type: {}'.format(typeid[1:]))
 
     @staticmethod
-    def resolve_struct(scope_stores, name):
-        return Parser.resolve_type(scope_stores, 's' + name)
+    def _resolve_struct(scope_stores, name):
+        return Parser._resolve_type(scope_stores, 's' + name)
 
     @staticmethod
-    def resolve_variant(scope_stores, name):
-        return Parser.resolve_type(scope_stores, 'v' + name)
+    def _resolved_variant(scope_stores, name):
+        return Parser._resolve_type(scope_stores, 'v' + name)
 
     @staticmethod
-    def resolve_alias(scope_stores, name):
-        return Parser.resolve_type(scope_stores, 'a' + name)
+    def _resolve_alias(scope_stores, name):
+        return Parser._resolve_type(scope_stores, 'a' + name)
 
     @staticmethod
-    def resolve_types(scope, scope_stores):
+    def _resolve_types(scope, scope_stores):
         scope_store = {}
         scope_stores.append(scope_store)
 
@@ -1125,31 +1139,61 @@ class Parser:
                             if subtype.name is not None:
                                 scope_store['v' + subtype.name] = subtype
 
-                    Parser.resolve_types(subtype, scope_stores)
+                    Parser._resolve_types(subtype, scope_stores)
                 else:
                     if type(entry.type) is StructRef:
-                        entry.type = Parser.resolve_struct(scope_stores,
+                        entry.type = Parser._resolve_struct(scope_stores,
                                                            subtype.name)
                     elif type(entry.type) is VariantRef:
-                        resolved_variant = Parser.resolve_variant(scope_stores,
+                        _resolved_variant = Parser.resolve_variant(scope_stores,
                                                                   subtype.name)
-                        resolved_variant.tag = subtype.tag
-                        entry.type = resolved_variant
+                        _resolved_variant.tag = subtype.tag
+                        entry.type = _resolved_variant
                     elif type(entry.type) is str:
-                        entry.type = Parser.resolve_alias(scope_stores,
+                        entry.type = Parser._resolve_alias(scope_stores,
                                                           subtype)
                     elif type(subtype) is Enum:
                         int_type = subtype.int_type
-                        subtype.int_type = Parser.resolve_alias(scope_stores,
+                        subtype.int_type = Parser._resolve_alias(scope_stores,
                                                                 int_type)
 
             if isinstance(entry, Scope):
-                Parser.resolve_types(entry, scope_stores)
+                Parser._resolve_types(entry, scope_stores)
 
         scope_stores.pop()
 
+    @staticmethod
+    def _get_doc_from_ast(ast):
+        doc = Doc()
+        doc.trace = None
+        doc.env = None
+        doc.clocks = []
+        doc.streams = []
+        doc.events = []
+
+        for entry in ast.entries:
+            if type(entry) is Trace:
+                doc.trace = entry
+            elif type(entry) is Env:
+                doc.env = entry
+            elif type(entry) is Clock:
+                doc.clocks.append(entry)
+            elif type(entry) is Stream:
+                doc.streams.append(entry)
+            elif type(entry) is Event:
+                doc.events.append(entry)
+
+        if doc.trace is None:
+            raise ParseError('missing trace block')
+
+        if doc.clocks is None:
+            raise ParseError('missing clock block')
+
+        return doc
+
     def parse(self, tsdl):
         ast = self.get_ast(tsdl)
-        Parser.resolve_types(ast, [])
+        Parser._resolve_types(ast, [])
+        doc = Parser._get_doc_from_ast(ast)
 
-        return ast
+        return doc
