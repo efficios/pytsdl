@@ -191,10 +191,10 @@ class ByteOrderAssignment(SimpleValue):
 
 
 class SignedAssignment(SimpleValue):
-    grammar = 'signed', '=', re.compile(r'true|false'), ';'
+    grammar = 'signed', '=', re.compile(r'true|false|1|0'), ';'
 
     def __init__(self, signed):
-        super().__init__(signed == 'true')
+        super().__init__(signed in ['true', '1'])
 
 
 class BaseAssignment(SimpleValue):
@@ -451,11 +451,15 @@ class Type:
 
 
 class TypeAlias:
-    grammar = 'typealias', Type, ':=', Identifier
+    grammar = 'typealias', Type, ':=', pypeg2.some(Identifier)
 
     def __init__(self, args):
         self._type = args[0].type
-        self._name = args[1].name
+        args.pop(0)
+        self._name = []
+
+        for a in args:
+            self._name.append(a.name)
 
     @property
     def type(self):
@@ -467,7 +471,7 @@ class TypeAlias:
 
     def __str__(self):
         type = str(self._type)
-        name = 'name="{}"'.format(self._name)
+        name = 'name="{}"'.format(' '.join(self._name))
 
         return '<typealias {}>{}</typealias>'.format(name, type)
 
@@ -659,14 +663,9 @@ UnaryExpr.grammar = [
 
 
 class Declarator:
-    grammar = (
-        Identifier,
-        pypeg2.maybe_some(UnaryExprSubscript)
-    )
-
-    def __init__(self, args):
-        self._name = args[0].name
-        self._subscripts = args[1:]
+    def __init__(self, name, subscripts):
+        self._name = name
+        self._subscripts = subscripts
 
     @property
     def name(self):
@@ -689,11 +688,37 @@ class Declarator:
 
 
 class Field:
-    grammar = [Identifier, Type], Declarator
+    grammar = [
+        (
+            Type,
+            Identifier,
+            pypeg2.maybe_some(UnaryExprSubscript)
+        ),
+        (
+            pypeg2.some(Identifier),
+            pypeg2.maybe_some(UnaryExprSubscript)
+        ),
+    ]
 
     def __init__(self, args):
-        self._type = args[0]
-        self._decl = args[1]
+        if type(args[0]) is Type:
+            self._type = args[0].type
+            args.pop(0)
+            decl_name = args[0].name
+            args.pop(0)
+            self._decl = Declarator(decl_name, args)
+        else:
+            self._type = []
+            subscripts = []
+
+            for a in args:
+                if type(a) is Identifier:
+                    self._type.append(a.name)
+                elif type(a) is UnaryExprSubscript:
+                    subscripts.append(a)
+
+            decl_name = self._type.pop()
+            self._decl = Declarator(decl_name, subscripts)
 
     @property
     def type(self):
@@ -704,10 +729,15 @@ class Field:
         return self._decl
 
     def __str__(self):
-        type = '<type>{}</type>'.format(str(self._type))
+        if type(self._type) is list:
+            type_in = ' '.join(self._type)
+        else:
+            type_in = str(self._type)
+
+        t = '<type>{}</type>'.format(type_in)
         decl = str(self._decl)
 
-        return '<field>{}{}</field>'.format(type, decl)
+        return '<field>{}{}</field>'.format(t, decl)
 
 
 class Entries(List):
@@ -729,21 +759,13 @@ class StructRef:
         return '<struct name="{}" />'.format(self._name)
 
 
-class TypeWithEntries:
+class _ScopeWithEntries:
     def _set_entries(self, entries):
         self._entries = entries
 
     @property
     def entries(self):
         return self._entries
-
-    @property
-    def fields(self):
-        return [f for f in self._entries if type(f) is Field]
-
-    @property
-    def typealiases(self):
-        return [f for f in self._entries if type(f) is TypeAlias]
 
     def _get_entries_str(self):
         s = '<entries>'
@@ -756,7 +778,7 @@ class TypeWithEntries:
         return s
 
 
-class StructFull(TypeWithEntries):
+class StructFull(_ScopeWithEntries):
     grammar = (
         'struct',
         pypeg2.optional(Identifier),
@@ -853,7 +875,7 @@ class VariantRef:
         return variant
 
 
-class VariantFull(TypeWithEntries):
+class VariantFull(_ScopeWithEntries):
     grammar = (
         'variant',
         pypeg2.optional(Identifier),
@@ -914,20 +936,108 @@ class Variant:
         return str(self._variant)
 
 
-_scopeEntries = [
+class ValueAssignment:
+    grammar = Identifier, '=', [Identifier, LiteralString, ConstNumber]
+
+    def __init__(self, args):
+        self._key = args[0].name
+
+        if type(args[1]) is LiteralString or type(args[1]) is ConstNumber:
+            self._value = args[1].value
+        else:
+            self._value = args[1]
+
+    @property
+    def key(self):
+        return self._key
+
+    @property
+    def value(self):
+        return self._value
+
+    def __str__(self):
+        key = 'key="{}"'.format(self._key)
+        value = '<value>{}</value>'.format(str(self._value))
+        assign = '<value-assignment {}>{}</value-assignment>'.format(key, value)
+
+        return assign
+
+
+class TypeAssignment:
+    grammar = UnaryExpr, ':=', Type
+
+    def __init__(self, args):
+        self._key = args[0].expr
+        self._type = args[1].type
+
+    @property
+    def key(self):
+        return self._key
+
+    @property
+    def type(self):
+        return self._type
+
+    def __str__(self):
+        key = '<key>{}</key>'.format(self._key)
+        type = '<type>{}</type>'.format(str(self._type))
+        assign = '<type-assignment>{}{}</type-assignment>'.format(key, type)
+
+        return assign
+
+
+_common_scope_entries = [
     TypeAlias,
     StructFull,
     VariantFull,
 ]
 
 
+_scope_entries = pypeg2.maybe_some((
+    [ValueAssignment, TypeAssignment] + _common_scope_entries,
+    ';'
+))
+
+
 Entries.grammar = pypeg2.maybe_some((
-    [Field] + _scopeEntries,
+    [Field] + _common_scope_entries,
     ';'
 ))
 
 
 Type.grammar = [Struct, Variant, Enum, Integer, FloatingPoint, String]
+
+
+class Scope(_ScopeWithEntries):
+    @staticmethod
+    def _create_scope(clsname, scope_name):
+        return type(clsname, (Scope, object), {
+            'grammar': (scope_name, '{', _scope_entries, '}'),
+            '_scope_name': scope_name
+        })
+
+    def __init__(self, entries=[]):
+        self._set_entries(entries)
+
+    def __str__(self):
+        s = '<{sn}>{e}</{sn}>'.format(sn=self._scope_name,
+                                      e=self._get_entries_str())
+
+        return s
+
+
+Env = Scope._create_scope('Env', 'env')
+Trace = Scope._create_scope('Trace', 'trace')
+Clock = Scope._create_scope('Clock', 'clock')
+Stream = Scope._create_scope('Stream', 'stream')
+Event = Scope._create_scope('Event', 'event')
+Top = Scope._create_scope('Top', 'top')
+
+
+Top.grammar = pypeg2.maybe_some((
+    [Env, Trace, Clock, Stream, Event] + _common_scope_entries,
+    ';'
+))
 
 
 class ParseError(RuntimeError):
@@ -936,11 +1046,15 @@ class ParseError(RuntimeError):
 
 
 class Parser:
-    def parse(self, tsdl):
+    def get_ast(self, tsdl):
         try:
-            ast = pypeg2.parse(tsdl, Type,
+            ast = pypeg2.parse(tsdl, Top,
                                comment=[pypeg2.comment_c, pypeg2.comment_cpp])
         except (SyntaxError, Exception) as e:
             raise ParseError(str(e))
 
         return ast
+
+    def parse(self, tsdl):
+        ast = self.get_ast(tsdl)
+

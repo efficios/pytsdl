@@ -1,72 +1,539 @@
-struct zorg {
-    some_type a;
-    struct some_struct b;
+/* CTF 1.8 */
+typealias integer { size = 8; align = 8; signed = false; } := uint8_t;
+typealias integer { size = 16; align = 8; signed = false; } := uint16_t;
+typealias integer { size = 32; align = 8; signed = false; } := uint32_t;
+typealias integer { size = 64; align = 8; signed = false; } := uint64_t;
+typealias integer { size = 64; align = 8; signed = false; } := unsigned long;
+typealias integer { size = 5; align = 1; signed = false; } := uint5_t;
+typealias integer { size = 27; align = 1; signed = false; } := uint27_t;
 
-    struct a {
-        int a;
-        int b;
+trace {
+    major = 1;
+    minor = 8;
+    uuid = "fd9e620e-e444-5c47-b9b1-68daaa2e72ee";
+    byte_order = le;
+    packet.header := struct {
+        uint32_t magic;
+        uint8_t  uuid[16];
+        uint32_t stream_id;
     };
+};
 
-    variant lol {
-        int a;
-        int b;
+env {
+    hostname = "archeepp";
+    domain = "kernel";
+    sysname = "Linux";
+    kernel_release = "3.15.8-1-ARCH";
+    kernel_version = "#1 SMP PREEMPT Fri Aug 1 08:51:42 CEST 2014";
+    tracer_name = "lttng-modules";
+    tracer_major = 2;
+    tracer_minor = 5;
+    tracer_patchlevel = 0;
+};
+
+clock {
+    name = monotonic;
+    uuid = "4787bb69-3f9d-4f3c-a27b-ac98fc7249eb";
+    description = "Monotonic Clock";
+    freq = 1000000000; /* Frequency, in Hz */
+    /* clock value offset from Epoch is: offset * (1/freq) */
+    offset = 1407164075034173364;
+};
+
+typealias integer {
+    size = 27; align = 1; signed = false;
+    map = clock.monotonic.value;
+} := uint27_clock_monotonic_t;
+
+typealias integer {
+    size = 32; align = 8; signed = false;
+    map = clock.monotonic.value;
+} := uint32_clock_monotonic_t;
+
+typealias integer {
+    size = 64; align = 8; signed = false;
+    map = clock.monotonic.value;
+} := uint64_clock_monotonic_t;
+
+struct packet_context {
+    uint64_clock_monotonic_t timestamp_begin;
+    uint64_clock_monotonic_t timestamp_end;
+    uint64_t content_size;
+    uint64_t packet_size;
+    unsigned long events_discarded;
+    uint32_t cpu_id;
+};
+
+struct event_header_compact {
+    enum : uint5_t { compact = 0 ... 30, extended = 31 } id;
+    variant <id> {
+        struct {
+            uint27_clock_monotonic_t timestamp;
+        } compact;
+        struct {
+            uint32_t id;
+            uint64_clock_monotonic_t timestamp;
+        } extended;
+    } v;
+} align(8);
+
+struct event_header_large {
+    enum : uint16_t { compact = 0 ... 65534, extended = 65535 } id;
+    variant <id> {
+        struct {
+            uint32_clock_monotonic_t timestamp;
+        } compact;
+        struct {
+            uint32_t id;
+            uint64_clock_monotonic_t timestamp;
+        } extended;
+    } v;
+} align(8);
+
+stream {
+    id = 0;
+    event.header := struct event_header_large;
+    packet.context := struct packet_context;
+};
+
+event {
+    name = "compat_sys_setns";
+    id = 770;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _fd;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _nstype;
     };
+};
 
-    typealias struct {
-        struct lol _23[a][12];
-    } align(8) := cadeau;
+event {
+    name = "compat_sys_sendmmsg";
+    id = 769;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _fd;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _mmsg;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _vlen;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _flags;
+    };
+};
 
-    variant lol <bateau._22[a]> _raccoon;
+event {
+    name = "compat_sys_syncfs";
+    id = 768;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _fd;
+    };
+};
 
-    typealias integer {
-        size = 23;
-        align = 3;
-    } := zoom;
+event {
+    name = "compat_sys_clock_adjtime";
+    id = 767;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _which_clock;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _utx;
+    };
+};
 
-    typealias enum : yo_int {
-        ZERO,
-        ONE,
-        TWO,
-        "T E N" = 10,
-        RANGE = 50... 0x134,
-    } := bob;
+event {
+    name = "compat_sys_prlimit64";
+    id = 766;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _pid;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _resource;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _new_rlim;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _old_rlim;
+    };
+};
 
-    typealias struct cadeau := bateau;
+event {
+    name = "compat_sys_fanotify_init";
+    id = 765;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _flags;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _event_f_flags;
+    };
+};
 
-    variant caterpillar <bob> {
-        int ONE;
+event {
+    name = "compat_sys_recvmmsg";
+    id = 764;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _fd;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _mmsg;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _vlen;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _flags;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _timeout;
+    };
+};
 
-        integer {
-            size = 256;
-            align = 020;
-            signed = false;
-            base = x;
-            byte_order = network;
-            map = some.unary->stuff;
-        } ZERO;
+event {
+    name = "compat_sys_perf_event_open";
+    id = 763;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _attr_uptr;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _pid;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _cpu;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _group_fd;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _flags;
+    };
+};
 
-        floating_point {
-            exp_dig = 31;
-            mant_dig = 1; // C++-style comment
-        } RANGE;
+event {
+    name = "compat_sys_rt_tgsigqueueinfo";
+    id = 762;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _tgid;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _pid;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _sig;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _uinfo;
+    };
+};
 
-        string TWO;
-    } mystere[12][a->ohwow];
+event {
+    name = "compat_sys_pwritev";
+    id = 761;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _fd;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _vec;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _vlen;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _pos_l;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _pos_h;
+    };
+};
 
-    enum malamala : int {
-        zok, /* C-style comment */
-        bateau,
-        "nicy nice" =
-                        23,
-    } field[12];
+event {
+    name = "compat_sys_preadv";
+    id = 760;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _fd;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _vec;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _vlen;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _pos_l;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _pos_h;
+    };
+};
 
-    struct watatatow yeah;
+event {
+    name = "compat_sys_inotify_init1";
+    id = 759;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _flags;
+    };
+};
 
-    type mega_array[1][2][3][4][5][a->b][a->b.c][a->b.c->d][a->b.c->d[(a->e)]];
+event {
+    name = "compat_sys_pipe2";
+    id = 758;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _fildes;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _flags;
+    };
+};
 
-    string lol;
+event {
+    name = "compat_sys_dup3";
+    id = 757;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _oldfd;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _newfd;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _flags;
+    };
+};
 
-    string {
-        encoding = ASCII;
-    } blizzard;
-} align(32)
+event {
+    name = "compat_sys_epoll_create1";
+    id = 756;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _flags;
+    };
+};
+
+event {
+    name = "compat_sys_eventfd2";
+    id = 755;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _count;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _flags;
+    };
+};
+
+event {
+    name = "compat_sys_signalfd4";
+    id = 754;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _ufd;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _user_mask;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _sizemask;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _flags;
+    };
+};
+
+event {
+    name = "compat_sys_timerfd_gettime";
+    id = 753;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _ufd;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _otmr;
+    };
+};
+
+event {
+    name = "compat_sys_timerfd_settime";
+    id = 752;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _ufd;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _flags;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _utmr;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _otmr;
+    };
+};
+
+event {
+    name = "compat_sys_eventfd";
+    id = 751;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _count;
+    };
+};
+
+event {
+    name = "compat_sys_timerfd_create";
+    id = 750;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _clockid;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _flags;
+    };
+};
+
+event {
+    name = "compat_sys_signalfd";
+    id = 749;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _ufd;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _user_mask;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _sizemask;
+    };
+};
+
+event {
+    name = "compat_sys_utimensat";
+    id = 748;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _dfd;
+        string _filename;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _utimes;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _flags;
+    };
+};
+
+event {
+    name = "compat_sys_epoll_pwait";
+    id = 747;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _epfd;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _events;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _maxevents;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _timeout;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _sigmask;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _sigsetsize;
+    };
+};
+
+event {
+    name = "compat_sys_getcpu";
+    id = 746;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _cpup;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _nodep;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _tcache;
+    };
+};
+
+event {
+    name = "compat_sys_vmsplice";
+    id = 745;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _fd;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _iov;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _nr_segs;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _flags;
+    };
+};
+
+event {
+    name = "compat_sys_tee";
+    id = 744;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _fdin;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _fdout;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _len;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _flags;
+    };
+};
+
+event {
+    name = "compat_sys_splice";
+    id = 743;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _fd_in;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _off_in;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _fd_out;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _off_out;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _len;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _flags;
+    };
+};
+
+event {
+    name = "compat_sys_get_robust_list";
+    id = 742;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _pid;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _head_ptr;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _len_ptr;
+    };
+};
+
+event {
+    name = "compat_sys_set_robust_list";
+    id = 741;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _head;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _len;
+    };
+};
+
+event {
+    name = "compat_sys_unshare";
+    id = 740;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _unshare_flags;
+    };
+};
+
+event {
+    name = "compat_sys_ppoll";
+    id = 739;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _ufds;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _nfds;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _tsp;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _sigmask;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 10; } _sigsetsize;
+    };
+};
+
+event {
+    name = "compat_sys_pselect6";
+    id = 738;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _n;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _inp;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _outp;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _exp;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _tsp;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _sig;
+    };
+};
+
+event {
+    name = "compat_sys_faccessat";
+    id = 737;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _dfd;
+        string _filename;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _mode;
+    };
+};
+
+event {
+    name = "compat_sys_fchmodat";
+    id = 736;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _dfd;
+        string _filename;
+        integer { size = 32; align = 8; signed = 0; encoding = none; base = 10; } _mode;
+    };
+};
+
+event {
+    name = "compat_sys_readlinkat";
+    id = 735;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _dfd;
+        string _pathname;
+        integer { size = 64; align = 8; signed = 0; encoding = none; base = 16; } _buf;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _bufsiz;
+    };
+};
+
+event {
+    name = "compat_sys_symlinkat";
+    id = 734;
+    stream_id = 0;
+    fields := struct {
+        string _oldname;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _newdfd;
+        string _newname;
+    };
+};
+
+event {
+    name = "compat_sys_linkat";
+    id = 733;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _olddfd;
+        string _oldname;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _newdfd;
+        string _newname;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _flags;
+    };
+};
+
+event {
+    name = "compat_sys_renameat";
+    id = 732;
+    stream_id = 0;
+    fields := struct {
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _olddfd;
+        string _oldname;
+        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _newdfd;
+        string _newname;
+    };
+};
