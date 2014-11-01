@@ -89,6 +89,65 @@ class Identifier:
         return '<id>{}</id>'.format(self._name)
 
 
+class PostfixExpr(List):
+    def __init__(self, elements):
+        super().__init__(elements)
+
+    def __str__(self):
+        postfix_expr = '<postfix-expr>'
+
+        for elem in self:
+            postfix_expr += str(elem)
+
+        postfix_expr += '</postfix-expr>'
+
+        return postfix_expr
+
+
+class UnaryExpr:
+    def __init__(self, expr):
+        if type(expr) is PrimaryExpr:
+            self._expr = expr.expr
+        else:
+            self._expr = expr
+
+    @property
+    def expr(self):
+        return self._expr
+
+    def __str__(self):
+        return str(self._expr)
+
+
+class PrimaryExpr:
+    def __init__(self, expr):
+        if type(expr) is ConstNumber or type(expr) is LiteralString:
+            self._expr = expr.value
+        else:
+            self._expr = expr
+
+    @property
+    def expr(self):
+        return self._expr
+
+    def __str__(self):
+        return str(self._expr)
+
+
+class UnaryExprSubscript:
+    grammar = '[', UnaryExpr, ']'
+
+    def __init__(self, expr):
+        self._expr = expr.expr
+
+    @property
+    def expr(self):
+        return self._expr
+
+    def __str__(self):
+        return '<subscript-expr>{}</subscript-expr>'.format(str(self._expr))
+
+
 class AlignAssignment(SimpleValue):
     grammar = 'align', '=', ConstInteger, ';'
 
@@ -183,6 +242,13 @@ class EncodingAssignment(SimpleValue):
         super().__init__(EncodingAssignment._encodingMap[encoding])
 
 
+class MapAssignment(SimpleValue):
+    grammar = 'map', '=', UnaryExpr, ';'
+
+    def __init__(self, expr):
+        super().__init__(expr)
+
+
 class Integer:
     grammar = 'integer', '{', pypeg2.some([
         SignedAssignment,
@@ -191,6 +257,7 @@ class Integer:
         AlignAssignment,
         BaseAssignment,
         EncodingAssignment,
+        MapAssignment,
     ]), '}'
 
     def __init__(self, assignments):
@@ -199,6 +266,7 @@ class Integer:
         self._base = 10
         self._encoding = Encoding.NONE
         self._align = None
+        self._map = None
 
         for a in assignments:
             if type(a) is SignedAssignment:
@@ -213,6 +281,8 @@ class Integer:
                 self._base = a.value
             elif type(a) is EncodingAssignment:
                 self._encoding = a.value
+            elif type(a) is MapAssignment:
+                self._map = a.value
 
         if self._align is None:
             if self._size % 8 == 0:
@@ -244,14 +314,26 @@ class Integer:
     def size(self):
         return self._size
 
+    @property
+    def map(self):
+        return self._map
+
     def __str__(self):
         signed = 'signed="{}"'.format('true' if self._signed else 'false')
         byte_order = 'byte-order="{}"'.format(self._byte_order)
         base = 'base="{}"'.format(self._base)
         encoding = 'encoding="{}"'.format(self._encoding)
         align = 'align="{}"'.format(self._align)
-        integer = '<integer {} {} {} {} {} />'.format(signed, byte_order, base,
-                                                      encoding, align)
+        integer = '<integer {} {} {} {} {}'.format(signed, byte_order,
+                                                   base, encoding,
+                                                   align)
+        map = ''
+
+        if self._map is not None:
+            map = '<map>{}</map>'.format(str(self._map))
+            integer += '>{}</integer>'.format(map)
+        else:
+            integer += ' />'
 
         return integer
 
@@ -520,65 +602,6 @@ class Enum:
         labels = '<labels>{}</labels>'.format(labels)
 
         return '<enum {} {}>{}</enum>'.format(name, int_type, labels)
-
-
-class PostfixExpr(List):
-    def __init__(self, elements):
-        super().__init__(elements)
-
-    def __str__(self):
-        postfix_expr = '<postfix-expr>'
-
-        for elem in self:
-            postfix_expr += str(elem)
-
-        postfix_expr += '</postfix-expr>'
-
-        return postfix_expr
-
-
-class UnaryExpr:
-    def __init__(self, expr):
-        if type(expr) is PrimaryExpr:
-            self._expr = expr.expr
-        else:
-            self._expr = expr
-
-    @property
-    def expr(self):
-        return self._expr
-
-    def __str__(self):
-        return str(self._expr)
-
-
-class PrimaryExpr:
-    def __init__(self, expr):
-        if type(expr) is ConstNumber or type(expr) is LiteralString:
-            self._expr = expr.value
-        else:
-            self._expr = expr
-
-    @property
-    def expr(self):
-        return self._expr
-
-    def __str__(self):
-        return str(self._expr)
-
-
-class UnaryExprSubscript:
-    grammar = '[', UnaryExpr, ']'
-
-    def __init__(self, expr):
-        self._expr = expr.expr
-
-    @property
-    def expr(self):
-        return self._expr
-
-    def __str__(self):
-        return '<subscript-expr>{}</subscript-expr>'.format(str(self._expr))
 
 
 class Dot:
@@ -891,7 +914,7 @@ _scopeEntries = [
 
 
 Entries.grammar = pypeg2.maybe_some((
-    [Field,] + _scopeEntries,
+    [Field] + _scopeEntries,
     ';'
 ))
 

@@ -42,6 +42,7 @@ struct zorg {
             signed = false;
             base = x;
             byte_order = network;
+            map = some.unary->stuff;
         } ZERO;
 
         floating_point {
