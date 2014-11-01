@@ -2,6 +2,16 @@ struct zorg {
     some_type a;
     struct some_struct b;
 
+    struct a {
+        int a;
+        int b;
+    };
+
+    variant lol {
+        int a;
+        int b;
+    };
+
     typealias struct {
         struct lol _23[a][12];
     } align(8) := cadeau;

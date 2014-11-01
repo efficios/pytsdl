@@ -361,7 +361,7 @@ class Type:
 
 
 class TypeAlias:
-    grammar = 'typealias', Type, ':=', Identifier, ';'
+    grammar = 'typealias', Type, ':=', Identifier
 
     def __init__(self, args):
         self._type = args[0].type
@@ -658,11 +658,7 @@ class Declarator:
 
 
 class Field:
-    grammar = (
-        [Identifier, Type],
-        Declarator,
-        ';'
-    )
+    grammar = [Identifier, Type], Declarator
 
     def __init__(self, args):
         self._type = args[0]
@@ -683,9 +679,7 @@ class Field:
         return '<field>{}{}</field>'.format(type, decl)
 
 
-class StructEntries(List):
-    grammar = pypeg2.maybe_some([Field, TypeAlias])
-
+class Entries(List):
     def __init__(self, fields=[]):
         super().__init__(fields)
 
@@ -735,7 +729,7 @@ class StructFull(TypeWithEntries):
     grammar = (
         'struct',
         pypeg2.optional(Identifier),
-        '{', StructEntries, '}',
+        '{', Entries, '}',
         pypeg2.optional(('align', '(', ConstInteger, ')'))
     )
 
@@ -791,12 +785,26 @@ class Struct:
         return str(self._struct)
 
 
+class VariantTag:
+    grammar = '<', UnaryExpr, '>'
+
+    def __init__(self, expr):
+        self._expr = expr
+
+    @property
+    def expr(self):
+        return self._expr
+
+    def __str__(self):
+        return '<tag>{}</tag>'.format(str(self._expr))
+
+
 class VariantRef:
-    grammar = 'variant', Identifier, '<', UnaryExpr, '>'
+    grammar = 'variant', Identifier, VariantTag
 
     def __init__(self, args):
         self._name = args[0].name
-        self._tag = args[1]
+        self._tag = args[1].expr
 
     @property
     def name(self):
@@ -818,19 +826,23 @@ class VariantFull(TypeWithEntries):
     grammar = (
         'variant',
         pypeg2.optional(Identifier),
-        '<', UnaryExpr, '>',
-        '{', StructEntries, '}'
+        pypeg2.optional(VariantTag),
+        '{', Entries, '}'
     )
 
     def __init__(self, args):
         self._name = None
+        self._tag = None
 
         if type(args[0]) is Identifier:
             self._name = args[0].name
             args.pop(0)
 
-        self._tag = args[0]
-        self._set_entries(args[1])
+        if type(args[0]) is VariantTag:
+            self._tag = args[0].expr
+            args.pop(0)
+
+        self._set_entries(args[0])
 
     @property
     def name(self):
@@ -842,13 +854,17 @@ class VariantFull(TypeWithEntries):
 
     def __str__(self):
         name = ''
+        tag = ''
 
         if self._name is not None:
             name = 'name="{}"'.format(self._name)
 
+        if self._tag is not None:
+            tag = str(self._tag)
+
         entries = self._get_entries_str()
-        fmt = '<variant {}><tag>{}</tag>{}</variant>'
-        variant = fmt.format(name, str(self._tag), entries)
+        fmt = '<variant {}>{}{}</variant>'
+        variant = fmt.format(name, tag, entries)
 
         return variant
 
@@ -865,6 +881,19 @@ class Variant:
 
     def __str__(self):
         return str(self._variant)
+
+
+_scopeEntries = [
+    TypeAlias,
+    StructFull,
+    VariantFull,
+]
+
+
+Entries.grammar = pypeg2.maybe_some((
+    [Field,] + _scopeEntries,
+    ';'
+))
 
 
 Type.grammar = [Struct, Variant, Enum, Integer, FloatingPoint, String]
