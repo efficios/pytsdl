@@ -1,5 +1,6 @@
 import enum
 import re
+import copy
 import pypeg2
 
 
@@ -332,9 +333,9 @@ class Integer:
         base = 'base="{}"'.format(self._base)
         encoding = 'encoding="{}"'.format(self._encoding)
         align = 'align="{}"'.format(self._align)
-        integer = '<integer {} {} {} {} {}'.format(signed, byte_order,
-                                                   base, encoding,
-                                                   align)
+        size = 'size="{}"'.format(self._size)
+        integer = '<integer {} {} {} {} {} {}'.format(size, signed, byte_order,
+                                                      base, encoding, align)
         map = ''
 
         if self._map is not None:
@@ -467,11 +468,11 @@ class TypeAlias:
 
     @property
     def name(self):
-        return self._name
+        return ' '.join(self._name)
 
     def __str__(self):
         type = str(self._type)
-        name = 'name="{}"'.format(' '.join(self._name))
+        name = 'name="{}"'.format(self.name)
 
         return '<typealias {}>{}</typealias>'.format(name, type)
 
@@ -722,7 +723,14 @@ class Field:
 
     @property
     def type(self):
+        if type(self._type) is list:
+            return ' '.join(self._type)
+
         return self._type
+
+    @type.setter
+    def type(self, type):
+        self._type = type
 
     @property
     def decl(self):
@@ -759,7 +767,7 @@ class StructRef:
         return '<struct name="{}" />'.format(self._name)
 
 
-class _ScopeWithEntries:
+class Scope:
     def _set_entries(self, entries):
         self._entries = entries
 
@@ -778,7 +786,7 @@ class _ScopeWithEntries:
         return s
 
 
-class StructFull(_ScopeWithEntries):
+class StructFull(Scope):
     grammar = (
         'struct',
         pypeg2.optional(Identifier),
@@ -869,13 +877,12 @@ class VariantRef:
 
     def __str__(self):
         name = 'name="{}"'.format(self._name)
-        variant = '<variant {}><tag>{}</tag></variant>'.format(name,
-                                                               str(self._tag))
+        variant = '<variant {}>{}</variant>'.format(name, str(self._tag))
 
         return variant
 
 
-class VariantFull(_ScopeWithEntries):
+class VariantFull(Scope):
     grammar = (
         'variant',
         pypeg2.optional(Identifier),
@@ -904,6 +911,10 @@ class VariantFull(_ScopeWithEntries):
     @property
     def tag(self):
         return self._tag
+
+    @tag.setter
+    def tag(self, tag):
+        self._tag = tag
 
     def __str__(self):
         name = ''
@@ -978,6 +989,10 @@ class TypeAssignment:
     def type(self):
         return self._type
 
+    @type.setter
+    def type(self, type):
+        self._type = type
+
     def __str__(self):
         key = '<key>{}</key>'.format(self._key)
         type = '<type>{}</type>'.format(str(self._type))
@@ -1008,10 +1023,10 @@ Entries.grammar = pypeg2.maybe_some((
 Type.grammar = [Struct, Variant, Enum, Integer, FloatingPoint, String]
 
 
-class Scope(_ScopeWithEntries):
+class TopLevelScope(Scope):
     @staticmethod
     def _create_scope(clsname, scope_name):
-        return type(clsname, (Scope, object), {
+        return type(clsname, (TopLevelScope, object), {
             'grammar': (scope_name, '{', _scope_entries, '}'),
             '_scope_name': scope_name
         })
@@ -1026,12 +1041,12 @@ class Scope(_ScopeWithEntries):
         return s
 
 
-Env = Scope._create_scope('Env', 'env')
-Trace = Scope._create_scope('Trace', 'trace')
-Clock = Scope._create_scope('Clock', 'clock')
-Stream = Scope._create_scope('Stream', 'stream')
-Event = Scope._create_scope('Event', 'event')
-Top = Scope._create_scope('Top', 'top')
+Env = TopLevelScope._create_scope('Env', 'env')
+Trace = TopLevelScope._create_scope('Trace', 'trace')
+Clock = TopLevelScope._create_scope('Clock', 'clock')
+Stream = TopLevelScope._create_scope('Stream', 'stream')
+Event = TopLevelScope._create_scope('Event', 'event')
+Top = TopLevelScope._create_scope('Top', 'top')
 
 
 Top.grammar = pypeg2.maybe_some((
@@ -1055,6 +1070,76 @@ class Parser:
 
         return ast
 
+    @staticmethod
+    def resolve_type(scope_stores, typeid):
+        for scope_store in reversed(scope_stores):
+            if typeid in scope_store:
+                resolved = scope_store[typeid]
+
+                if type(resolved) is VariantFull:
+                    return copy.deepcopy(resolved)
+
+                return scope_store[typeid]
+
+        raise ParseError('cannot resolve type: {}'.format(typeid[1:]))
+
+    @staticmethod
+    def resolve_struct(scope_stores, name):
+        return Parser.resolve_type(scope_stores, 's' + name)
+
+    @staticmethod
+    def resolve_variant(scope_stores, name):
+        return Parser.resolve_type(scope_stores, 'v' + name)
+
+    @staticmethod
+    def resolve_alias(scope_stores, name):
+        return Parser.resolve_type(scope_stores, 'a' + name)
+
+    @staticmethod
+    def resolve_types(scope, scope_stores):
+        scope_store = {}
+        scope_stores.append(scope_store)
+
+        for entry in scope.entries:
+            if type(entry) is TypeAlias:
+                scope_store['a' + entry.name] = entry.type
+            elif type(entry) is StructFull:
+                if entry.name is not None:
+                    scope_store['s' + entry.name] = entry
+            elif type(entry) is VariantFull:
+                if entry.name is not None:
+                    scope_store['v' + entry.name] = entry
+            elif type(entry) is TypeAssignment or type(entry) is Field:
+                if (isinstance(entry.type, Scope)):
+                    if type(entry) is Field:
+                        if type(entry.type) is StructFull:
+                            if entry.type.name is not None:
+                                scope_store['s' + entry.type.name] = entry.type
+                        elif type(entry.type) is VariantFull:
+                            if entry.type.name is not None:
+                                scope_store['v' + entry.type.name] = entry.type
+
+                    Parser.resolve_types(entry.type, scope_stores)
+                else:
+                    if type(entry.type) is StructRef:
+                        entry.type = Parser.resolve_struct(scope_stores,
+                                                           entry.type.name)
+                    elif type(entry.type) is VariantRef:
+                        resolved_variant = Parser.resolve_variant(scope_stores,
+                                                                  entry.type.name)
+                        resolved_variant.tag = entry.type.tag
+                        entry.type = resolved_variant
+                    elif type(entry.type) is str:
+                        entry.type = Parser.resolve_alias(scope_stores,
+                                                          entry.type)
+
+            if isinstance(entry, Scope):
+                Parser.resolve_types(entry, scope_stores)
+
+        scope_stores.pop()
+
     def parse(self, tsdl):
         ast = self.get_ast(tsdl)
+        Parser.resolve_types(ast, [])
 
+        return ast

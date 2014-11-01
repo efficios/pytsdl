@@ -9,4 +9,4 @@ if __name__ == '__main__':
     parser = pytsdl.Parser()
     ast = parser.parse(tsdl)
 
-    print('got it')
+    print(ast)
