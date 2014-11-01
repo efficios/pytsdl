@@ -594,6 +594,10 @@ class Enum:
     def int_type(self):
         return self._int_type
 
+    @int_type.setter
+    def int_type(self, int_type):
+        self._int_type = int_type
+
     @property
     def labels(self):
         return self._labels
@@ -604,7 +608,7 @@ class Enum:
         if self._name is not None:
             name = 'name="{}"'.format(self._name)
 
-        int_type = 'int-type="{}"'.format(self._int_type)
+        int_type = '<int-type>{}</int-type>'.format(str(self._int_type))
         labels = ''
 
         for key, value in self._labels.items():
@@ -614,7 +618,7 @@ class Enum:
 
         labels = '<labels>{}</labels>'.format(labels)
 
-        return '<enum {} {}>{}</enum>'.format(name, int_type, labels)
+        return '<enum {}>{}{}</enum>'.format(name, int_type, labels)
 
 
 class Dot:
@@ -1110,28 +1114,34 @@ class Parser:
                 if entry.name is not None:
                     scope_store['v' + entry.name] = entry
             elif type(entry) is TypeAssignment or type(entry) is Field:
-                if (isinstance(entry.type, Scope)):
-                    if type(entry) is Field:
-                        if type(entry.type) is StructFull:
-                            if entry.type.name is not None:
-                                scope_store['s' + entry.type.name] = entry.type
-                        elif type(entry.type) is VariantFull:
-                            if entry.type.name is not None:
-                                scope_store['v' + entry.type.name] = entry.type
+                subtype = entry.type
 
-                    Parser.resolve_types(entry.type, scope_stores)
+                if (isinstance(subtype, Scope)):
+                    if type(entry) is Field:
+                        if type(subtype) is StructFull:
+                            if subtype.name is not None:
+                                scope_store['s' + subtype.name] = subtype
+                        elif type(subtype) is VariantFull:
+                            if subtype.name is not None:
+                                scope_store['v' + subtype.name] = subtype
+
+                    Parser.resolve_types(subtype, scope_stores)
                 else:
                     if type(entry.type) is StructRef:
                         entry.type = Parser.resolve_struct(scope_stores,
-                                                           entry.type.name)
+                                                           subtype.name)
                     elif type(entry.type) is VariantRef:
                         resolved_variant = Parser.resolve_variant(scope_stores,
-                                                                  entry.type.name)
-                        resolved_variant.tag = entry.type.tag
+                                                                  subtype.name)
+                        resolved_variant.tag = subtype.tag
                         entry.type = resolved_variant
                     elif type(entry.type) is str:
                         entry.type = Parser.resolve_alias(scope_stores,
-                                                          entry.type)
+                                                          subtype)
+                    elif type(subtype) is Enum:
+                        int_type = subtype.int_type
+                        subtype.int_type = Parser.resolve_alias(scope_stores,
+                                                                int_type)
 
             if isinstance(entry, Scope):
                 Parser.resolve_types(entry, scope_stores)
