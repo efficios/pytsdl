@@ -1,17 +1,18 @@
 import enum
 import re
 import copy
+import uuid
 import pypeg2
+import pytsdl.tsdl
 
 
-class StrNameEnum(enum.Enum):
-    def __str__(self):
-        return self.name
-
-
-class List:
+class _List:
     def __init__(self, elements):
         self._elements = elements
+
+    @property
+    def elements(self):
+        return self._elements
 
     def __iter__(self):
         for elem in self._elements:
@@ -20,8 +21,12 @@ class List:
     def __getitem__(self, i):
         return self._elements[i]
 
+    def __str__(self):
+        # this is normally never exposed
+        raise RuntimeError()
 
-class SimpleValue:
+
+class _SingleValue:
     def __init__(self, value):
         self._value = value
 
@@ -30,46 +35,101 @@ class SimpleValue:
         return self._value
 
     def __str__(self):
-        return str(self._value)
+        # this is normally never exposed
+        raise RuntimeError()
 
 
-class LiteralString(SimpleValue):
+class Node:
+    def accept(self, visitor):
+        method = 'visit_{}'.format(self.__class__.__name__)
+
+        if hasattr(visitor, method):
+            return getattr(visitor, method)(self)
+
+        return visitor.visit(self)
+
+    def is_scope(self):
+        return isinstance(self, Scope)
+
+
+# examples:
+#
+#   "hello"
+#   "he\tll\x3b;o\n"
+class LiteralString(_SingleValue, Node):
     grammar = '"', re.compile(r'(\\.|[^"])*'), '"'
 
     def __init__(self, string):
         string = bytes(string, 'utf-8').decode('unicode_escape')
         super().__init__(string)
 
+    def __str__(self):
+        return '<literal-string>{}</literal-string>'.format(self.value)
 
-class ConstDecInteger(SimpleValue):
+
+# examples:
+#
+#   12
+#   934
+class ConstDecInteger(_SingleValue):
     grammar = re.compile(r'[0-9]+')
 
     def __init__(self, dec_str):
         super().__init__(int(dec_str))
 
 
-class ConstOctInteger(SimpleValue):
+# examples:
+#
+#   023
+#   0177
+class ConstOctInteger(_SingleValue):
     grammar = '0', re.compile(r'[0-9]+')
 
     def __init__(self, oct_str):
         super().__init__(int(oct_str, 8))
 
 
-class ConstHexInteger(SimpleValue):
+# examples:
+#
+#   0x3b
+#   0xCAFE
+#   0XbAbE1
+class ConstHexInteger(_SingleValue):
     grammar = pypeg2.contiguous(['0x', '0X'], re.compile(r'[0-9a-fA-F]+'))
 
     def __init__(self, hex_str):
         super().__init__(int(hex_str, 16))
 
 
-class ConstInteger(SimpleValue):
+# examples:
+#
+#   12
+#   934
+#   023
+#   0177
+#   0x3b
+#   0xCAFE
+#   0XbAbE1
+class ConstInteger(_SingleValue):
     grammar = [ConstHexInteger, ConstOctInteger, ConstDecInteger]
 
     def __init__(self, integer):
         super().__init__(integer.value)
 
+    def __str__(self):
+        return '<const-int>{}</const-int>'.format(self.value)
 
-class ConstNumber(SimpleValue):
+
+# examples:
+#
+#   12
+#   -934
+#   023
+#   -0177
+#   +0x3b
+#   -0xCAFE
+#   0XbAbE1
+class ConstNumber(_SingleValue, Node):
     grammar = pypeg2.optional(re.compile(r'[+-]')), ConstInteger
 
     def __init__(self, args):
@@ -83,22 +143,26 @@ class ConstNumber(SimpleValue):
 
         super().__init__(args[0].value * mul)
 
+    def __str__(self):
+        return '<const-number>{}</const-number>'.format(self.value)
 
-class Identifier:
-    grammar = re.compile(r'^(?!(?:struct|variant|enum|integer|floating_point|string))[A-Za-z_][A-Za-z_0-9]*')
+
+# examples:
+#
+#   hello
+#   _field_name
+#   Bob42
+class Identifier(_SingleValue, Node):
+    grammar = re.compile(r'^(?!(?:struct|variant|enum|integer|floating_point|string|typealias))[A-Za-z_][A-Za-z_0-9]*')
 
     def __init__(self, name):
-        self._name = name
-
-    @property
-    def name(self):
-        return self._name
+        super().__init__(name)
 
     def __str__(self):
-        return '<id>{}</id>'.format(self._name)
+        return '<id>{}</id>'.format(self.value)
 
 
-class PostfixExpr(List):
+class PostfixExpr(_List, Node):
     def __init__(self, elements):
         super().__init__(elements)
 
@@ -113,7 +177,7 @@ class PostfixExpr(List):
         return postfix_expr
 
 
-class UnaryExpr:
+class UnaryExpr(Node):
     def __init__(self, expr):
         if type(expr) is PrimaryExpr:
             self._expr = expr.expr
@@ -125,25 +189,22 @@ class UnaryExpr:
         return self._expr
 
     def __str__(self):
-        return str(self._expr)
+        return '<unary-expr>{}</unary-expr>'.format(str(self._expr))
 
 
-class PrimaryExpr:
+class PrimaryExpr(Node):
     def __init__(self, expr):
-        if type(expr) is ConstNumber or type(expr) is LiteralString:
-            self._expr = expr.value
-        else:
-            self._expr = expr
+        self._expr = expr
 
     @property
     def expr(self):
         return self._expr
 
     def __str__(self):
-        return str(self._expr)
+        return '<primary-expr>{}</primary-expr>'.format(str(self._expr))
 
 
-class UnaryExprSubscript:
+class UnaryExprSubscript(Node):
     grammar = '[', UnaryExpr, ']'
 
     def __init__(self, expr):
@@ -157,336 +218,18 @@ class UnaryExprSubscript:
         return '<subscript-expr>{}</subscript-expr>'.format(str(self._expr))
 
 
-class AlignAssignment(SimpleValue):
-    grammar = 'align', '=', ConstInteger, ';'
-
-    def __init__(self, integer):
-        super().__init__(integer.value)
-
-
-class SizeAssignment(SimpleValue):
-    grammar = 'size', '=', ConstInteger, ';'
-
-    def __init__(self, integer):
-        super().__init__(integer.value)
-
-
-class ByteOrder(StrNameEnum):
-    NATIVE = 0
-    BE = 1
-    LE = 2
-
-
-class ByteOrderAssignment(SimpleValue):
-    grammar = 'byte_order', '=', re.compile(r'native|network|be|le'), ';'
-
-    _byteOrderMap = {
-        'native': ByteOrder.NATIVE,
-        'be': ByteOrder.BE,
-        'network': ByteOrder.BE,
-        'le': ByteOrder.LE,
-    }
-
-    def __init__(self, align):
-        super().__init__(ByteOrderAssignment._byteOrderMap[align])
-
-
-class SignedAssignment(SimpleValue):
-    grammar = 'signed', '=', re.compile(r'true|false|1|0'), ';'
-
-    def __init__(self, signed):
-        super().__init__(signed in ['true', '1'])
-
-
-class BaseAssignment(SimpleValue):
-    grammar = 'base', '=', [
-        ConstInteger,
-        re.compile(r'decimal|dec|d|i|u|hexadecimal|hex|x|X|p|octal|oct|o|binary|bin|b')
-    ], ';'
-
-    _baseMap = {
-        'decimal': 10,
-        'dec': 10,
-        'd': 10,
-        'i': 10,
-        'u': 10,
-        'hexadecimal': 16,
-        'hex': 16,
-        'x': 16,
-        'X': 16,
-        'p': 16,
-        'octal': 8,
-        'oct': 8,
-        'o': 8,
-        'binary': 2,
-        'bin': 2,
-        'b': 2,
-    }
-
-    def __init__(self, base):
-        if type(base) is ConstInteger:
-            value = base.value
-        else:
-            value = BaseAssignment._baseMap[base]
-
-        super().__init__(value)
-
-
-class Encoding(StrNameEnum):
-    NONE = 0
-    UTF8 = 1
-    ASCII = 2
-
-
-class EncodingAssignment(SimpleValue):
-    grammar = 'encoding', '=', re.compile(r'none|UTF8|ASCII'), ';'
-
-    _encodingMap = {
-        'none': Encoding.NONE,
-        'UTF8': Encoding.UTF8,
-        'ASCII': Encoding.ASCII,
-    }
-
-    def __init__(self, encoding):
-        super().__init__(EncodingAssignment._encodingMap[encoding])
-
-
-class MapAssignment(SimpleValue):
-    grammar = 'map', '=', UnaryExpr, ';'
-
-    def __init__(self, expr):
-        super().__init__(expr)
-
-
-class Integer:
-    grammar = 'integer', '{', pypeg2.some([
-        SignedAssignment,
-        ByteOrderAssignment,
-        SizeAssignment,
-        AlignAssignment,
-        BaseAssignment,
-        EncodingAssignment,
-        MapAssignment,
-    ]), '}'
-
-    def __init__(self, assignments):
-        self._signed = False
-        self._byte_order = ByteOrder.NATIVE
-        self._base = 10
-        self._encoding = Encoding.NONE
-        self._align = None
-        self._map = None
-
-        for a in assignments:
-            if type(a) is SignedAssignment:
-                self._signed = a.value
-            elif type(a) is ByteOrderAssignment:
-                self._byte_order = a.value
-            elif type(a) is SizeAssignment:
-                self._size = a.value
-            elif type(a) is AlignAssignment:
-                self._align = a.value
-            elif type(a) is BaseAssignment:
-                self._base = a.value
-            elif type(a) is EncodingAssignment:
-                self._encoding = a.value
-            elif type(a) is MapAssignment:
-                self._map = a.value
-
-        if self._align is None:
-            if self._size % 8 == 0:
-                self._align = 8
-            else:
-                self._align = 1
-
-    @property
-    def signed(self):
-        return self._signed
-
-    @property
-    def byte_order(self):
-        return self._byte_order
-
-    @property
-    def base(self):
-        return self._base
-
-    @property
-    def encoding(self):
-        return self._encoding
-
-    @property
-    def align(self):
-        return self._align
-
-    @property
-    def size(self):
-        return self._size
-
-    @property
-    def map(self):
-        return self._map
-
-    def __str__(self):
-        signed = 'signed="{}"'.format('true' if self._signed else 'false')
-        byte_order = 'byte-order="{}"'.format(self._byte_order)
-        base = 'base="{}"'.format(self._base)
-        encoding = 'encoding="{}"'.format(self._encoding)
-        align = 'align="{}"'.format(self._align)
-        size = 'size="{}"'.format(self._size)
-        integer = '<integer {} {} {} {} {} {}'.format(size, signed, byte_order,
-                                                      base, encoding, align)
-        map = ''
-
-        if self._map is not None:
-            map = '<map>{}</map>'.format(str(self._map))
-            integer += '>{}</integer>'.format(map)
-        else:
-            integer += ' />'
-
-        return integer
-
-
-class ExpDigAssignment(SimpleValue):
-    grammar = 'exp_dig', '=', ConstInteger, ';'
-
-    def __init__(self, exp_dig):
-        super().__init__(exp_dig.value)
-
-
-class MantDigAssignment(SimpleValue):
-    grammar = 'mant_dig', '=', ConstInteger, ';'
-
-    def __init__(self, mant_dig):
-        super().__init__(mant_dig.value)
-
-
-class FloatingPoint:
-    grammar = 'floating_point', '{', pypeg2.some([
-        ExpDigAssignment,
-        MantDigAssignment,
-        ByteOrderAssignment,
-        AlignAssignment,
-    ]), '}'
-
-    def __init__(self, assignments):
-        self._align = 1
-        self._byte_order = ByteOrder.NATIVE
-
-        for a in assignments:
-            if type(a) is ExpDigAssignment:
-                self._exp_dig = a.value
-            elif type(a) is MantDigAssignment:
-                self._mant_dig = a.value
-            elif type(a) is ByteOrderAssignment:
-                self._byte_order = a.value
-            elif type(a) is AlignAssignment:
-                self._align = a.value
-
-    @property
-    def exp_dig(self):
-        return self._exp_dig
-
-    @property
-    def mant_dig(self):
-        return self._mant_dig
-
-    @property
-    def byte_order(self):
-        return self._byte_order
-
-    @property
-    def align(self):
-        return self._align
-
-    def __str__(self):
-        exp_dig = 'exp-dig="{}"'.format(self._exp_dig)
-        mant_dig = 'mant-dig="{}"'.format(self._mant_dig)
-        byte_order = 'byte-order="{}"'.format(self._byte_order)
-        align = 'align="{}"'.format(self._align)
-        float = '<floating_point {} {} {} {} />'.format(exp_dig, mant_dig,
-                                                        byte_order, align)
-
-        return float
-
-
-class String:
-    grammar = (
-        'string',
-        pypeg2.optional((
-            '{', EncodingAssignment, '}'
-        ))
-    )
-
-    def __init__(self, encoding=None):
-        self._encoding = Encoding.UTF8
-
-        if encoding is not None:
-            self._encoding = encoding.value
-
-    @property
-    def encoding(self):
-        return self._encoding
-
-    def __str__(self):
-        string = '<string encoding="{}" />'.format(self._encoding)
-
-        return string
-
-
-class Type:
-    def __init__(self, t):
-        if type(t) is Struct:
-            self._type = t.struct
-        elif type(t) is Variant:
-            self._type = t.variant
-        else:
-            self._type = t
-
-    @property
-    def type(self):
-        return self._type
-
-    def __str__(self):
-        return str(self._type)
-
-
-class TypeAlias:
-    grammar = 'typealias', Type, ':=', pypeg2.some(Identifier)
+# examples:
+#
+#   key = identifier
+#   key = "string"
+#   key = 0x17
+#   key = -02131
+class ValueAssignment(Node):
+    grammar = Identifier, '=', UnaryExpr
 
     def __init__(self, args):
-        self._type = args[0].type
-        args.pop(0)
-        self._name = []
-
-        for a in args:
-            self._name.append(a.name)
-
-    @property
-    def type(self):
-        return self._type
-
-    @property
-    def name(self):
-        return ' '.join(self._name)
-
-    def __str__(self):
-        type = str(self._type)
-        name = 'name="{}"'.format(self.name)
-
-        return '<typealias {}>{}</typealias>'.format(name, type)
-
-
-class EnumeratorValue:
-    grammar = [Identifier, LiteralString], '=', ConstInteger
-
-    def __init__(self, args):
-        if type(args[0]) is Identifier:
-            self._key = args[0].name
-        else:
-            self._key = args[0].value
-
-        self._value = args[1].value
+        self._key = args[0]
+        self._value = args[1]
 
     @property
     def key(self):
@@ -496,22 +239,183 @@ class EnumeratorValue:
     def value(self):
         return self._value
 
+    def __str__(self):
+        return '<value-assign>{}{}</value-assign>'.format(str(self._key),
+                                                          str(self._value))
 
-class EnumeratorRange:
-    grammar = [Identifier, LiteralString], '=', ConstInteger, '...', ConstInteger
+
+# examples:
+#
+#   integer {
+#       size = 8;
+#       align = 8;
+#       signed = true;
+#       byte_order = native;
+#       map = clock.monotonic.value;
+#       encoding = ASCII;
+#       base = oct;
+#   }
+#
+#   integer {size = 13;}
+class Integer(_List, Node):
+    grammar = 'integer', '{', pypeg2.some((ValueAssignment, ';')), '}'
+
+    def __init__(self, assignments):
+        super().__init__(assignments)
+
+    def __str__(self):
+        integer = '<integer>'
+
+        for a in self:
+            integer += str(a)
+
+        integer += '</integer>'
+
+        return integer
+
+
+# examples:
+#
+#   floating_point {
+#       exp_dig = 3;
+#       mant_dig = 0x1b;
+#       byte_order = native;
+#       align = 2;
+#   }
+#
+#   floating_point {exp_dig = 2; mant_dig = 18;}
+class FloatingPoint(_List, Node):
+    grammar = 'floating_point', '{', pypeg2.some((ValueAssignment, ';')), '}'
+
+    def __init__(self, assignments):
+        super().__init__(assignments)
+
+    def __str__(self):
+        float = '<floating-point>'
+
+        for a in self:
+            float += str(a)
+
+        float += '</floating-point>'
+
+        return float
+
+
+# examples:
+#
+#   string
+#
+#   string {
+#       encoding = ASCII;
+#   }
+class String(_SingleValue, Node):
+    grammar = (
+        'string',
+        pypeg2.optional((
+            '{', ValueAssignment, ';', '}'
+        ))
+    )
+
+    def __init__(self, encoding=None):
+        super().__init__(encoding)
+
+    def __str__(self):
+        string = '<string>'
+
+        if self.value is not None:
+            string += str(self.value)
+
+        string += '</string>'
+
+        return string
+
+
+class Type(_SingleValue, Node):
+    def __init__(self, t):
+        if type(t) is Struct:
+            t = t.value
+        elif type(t) is Variant:
+            t = t.value
+
+        super().__init__(t)
+
+
+# examples:
+#
+#   typealias integer {
+#       size = 64;
+#       align = 8;
+#       signed = false;
+#   } := unsigned long;
+#
+#   typealias string := zok;
+#
+#   typealias enum bouh : unsigned long long {
+#       ZERO,
+#       ONE,
+#       TWO,
+#       TEN = 10,
+#       ELEVEN,
+#   } := the_great_enum;
+class TypeAlias(Node):
+    grammar = 'typealias', Type, ':=', pypeg2.some(Identifier)
 
     def __init__(self, args):
-        if type(args[0]) is Identifier:
-            self._key = args[0].name
-        else:
-            self._key = args[0].value
+        self._type = args[0].value
+        args.pop(0)
 
-        self._low = args[1].value
-        self._high = args[2].value
+        # may contain spaces -> not really an identifier; still simpler
+        self._name = Identifier(' '.join([id.value for id in args]))
+
+    @property
+    def type(self):
+        return self._type
+
+    @property
+    def name(self):
+        return self._name
+
+    def __str__(self):
+        return '<typealias>{}{}</typealias>'.format(str(self._type),
+                                                    str(self._name))
+
+
+# examples:
+#
+#   LABEL = 23
+#   "some string" = 42
+class EnumeratorValue(Node):
+    grammar = [Identifier, LiteralString], '=', ConstInteger
+
+    def __init__(self, args):
+        self._key = args[0]
+        self._value = args[1]
 
     @property
     def key(self):
         return self._key
+
+    @property
+    def value(self):
+        return self._value
+
+    def __str__(self):
+        return '<enum-value>{}{}</enum-value>'.format(str(self._key),
+                                                      str(self._value))
+
+
+# examples:
+#
+#   23 ... 102
+#   1...7
+#   -53 ... 747
+class ConstNumberRange(Node):
+    # eventually replace ConstNumber by ConstInteger here
+    grammar = ConstNumber, '...', ConstNumber
+
+    def __init__(self, args):
+        self._low = args[0]
+        self._high = args[1]
 
     @property
     def low(self):
@@ -521,8 +425,45 @@ class EnumeratorRange:
     def high(self):
         return self._high
 
+    def __str__(self):
+        fmt = '<const-int-range>{}{}</const-int-range>'
 
-class Enumerator:
+        return fmt.format(str(self._low), str(self._high))
+
+
+# examples:
+#
+#   LABEL = 23 ... 102
+#   "some string" = -53...747
+class EnumeratorRange(Node):
+    grammar = [Identifier, LiteralString], '=', ConstNumberRange
+
+    def __init__(self, args):
+        self._key = args[0]
+        self._range = args[1]
+
+    @property
+    def key(self):
+        return self._key
+
+    @property
+    def range(self):
+        return self._range
+
+    def __str__(self):
+        return '<enum-range>{}{}</enum-range>'.format(str(self._key),
+                                                      str(self._range))
+
+
+# examples:
+#
+#   LABEL
+#   "some string"
+#   LABEL = 23
+#   "some string" = 42
+#   LABEL = 23 ... 102
+#   "some string" = -53...747
+class Enumerator(_SingleValue, Node):
     grammar = [
         EnumeratorRange,
         EnumeratorValue,
@@ -530,32 +471,67 @@ class Enumerator:
         LiteralString,
     ]
 
-    def __init__(self, assignment):
-        if type(assignment) is Identifier:
-            self._assignment = assignment.name
-        elif type(assignment) is LiteralString:
-            self._assignment = assignment.value
-        else:
-            self._assignment = assignment
+    def __init__(self, enumerator):
+        super().__init__(enumerator)
 
-    @property
-    def assignment(self):
-        return self._assignment
+    def __str__(self):
+        return '<enumerator>{}{}</enumerator>'.format(str(self.value))
 
 
-class Enumerators(List):
+# examples:
+#
+#   LABEL, LABEL2 = 23, "some label" = 1...18,
+class Enumerators(_List, Node):
     grammar = pypeg2.csl(Enumerator), pypeg2.optional(',')
 
     def __init__(self, items):
-        super().__init__([i.assignment for i in items])
+        super().__init__([i.value for i in items])
+
+    def __str__(self):
+        s = '<enumerators>'
+
+        for e in self:
+            s += str(e)
+
+        s += '</enumerators>'
+
+        return s
 
 
-class Enum:
+class EnumName(_SingleValue):
+    grammar = Identifier
+
+    def __init__(self, name):
+        super().__init__(name)
+
+    def __str__(self):
+        # this is normally never exposed
+        raise RuntimeError()
+
+# examples:
+#
+#   enum my_enum : my_int {
+#       ONE,
+#       TWO,
+#       THREE,
+#       FOUR,
+#       TEN = 10,
+#       ELEVEN,
+#       RANGE = 67 ... 85,
+#       EIGHTY_SIX,
+#       HUNDRED = 100,
+#   }
+#
+#   enum : my_int {
+#       STATE1,
+#       STATE2
+#   }
+class Enum(Node):
     grammar = (
         'enum',
-        pypeg2.optional(Identifier),
+        pypeg2.optional(EnumName),
         ':',
-        Identifier,
+        pypeg2.some(Identifier),
         '{',
         Enumerators,
         '}'
@@ -564,27 +540,12 @@ class Enum:
     def __init__(self, args):
         self._name = None
 
-        if len(args) == 3:
-            self._name = args[0].name
+        if type(args[0]) is EnumName:
+            self._name = args[0].value
             args.pop(0)
 
-        self._int_type = args[0].name
-        self._init_enum_labels(args[1])
-
-    def _init_enum_labels(self, assignment_list):
-        self._labels = {}
-        cur = 0
-
-        for a in assignment_list:
-            if type(a) is str:
-                self._labels[a] = (cur, cur)
-                cur += 1
-            elif type(a) is EnumeratorValue:
-                self._labels[a.key] = (a.value, a.value)
-                cur = a.value + 1
-            elif type(a) is EnumeratorRange:
-                self._labels[a.key] = (a.low, a.high)
-                cur = a.high + 1
+        self._int_type = Identifier(' '.join([i.value for i in args[0:-1]]))
+        self._enumerators = args[-1]
 
     @property
     def name(self):
@@ -599,40 +560,34 @@ class Enum:
         self._int_type = int_type
 
     @property
-    def labels(self):
-        return self._labels
+    def enumerators(self):
+        return self._enumerators
 
     def __str__(self):
-        name = ''
+        enum = '<enum>'
 
         if self._name is not None:
-            name = 'name="{}"'.format(self._name)
+            enum += str(self._name)
 
-        int_type = '<int-type>{}</int-type>'.format(str(self._int_type))
-        labels = ''
+        enum += str(self._int_type)
+        enum += str(self._enumerators)
+        enum += '</enum>'
 
-        for key, value in self._labels.items():
-            label_fmt = '<label name="{}" low="{}" high="{}" />'
-            label = label_fmt.format(key, value[0], value[1])
-            labels += label
-
-        labels = '<labels>{}</labels>'.format(labels)
-
-        return '<enum {}>{}{}</enum>'.format(name, int_type, labels)
+        return enum
 
 
-class Dot:
-    grammar = re.compile(r'\.')
+class Dot(Node):
+    grammar = '.'
 
-    def __init__(self, args):
+    def __init__(self):
         pass
 
     def __str__(self):
         return '<dot />'
 
 
-class Arrow:
-    grammar = re.compile(r'->')
+class Arrow(Node):
+    grammar = '->'
 
     def __init__(self, args):
         pass
@@ -667,7 +622,7 @@ UnaryExpr.grammar = [
 ]
 
 
-class Declarator:
+class Declarator(Node):
     def __init__(self, name, subscripts):
         self._name = name
         self._subscripts = subscripts
@@ -681,55 +636,40 @@ class Declarator:
         return self._subscripts
 
     def __str__(self):
-        name = 'name="{}"'.format(self._name)
-        decl = '<declarator {}><subscripts>'.format(name)
+        decl = '<decl>{}'.format(str(self._name))
 
-        for sub in self._subscripts:
-            decl += str(sub)
+        for s in self._subscripts:
+            decl += str(s)
 
-        decl += '</subscripts></declarator>'
+        decl += '</decl>'
 
         return decl
 
 
-class Field:
-    grammar = [
-        (
-            Type,
-            Identifier,
-            pypeg2.maybe_some(UnaryExprSubscript)
-        ),
-        (
-            pypeg2.some(Identifier),
-            pypeg2.maybe_some(UnaryExprSubscript)
-        ),
-    ]
+# examples:
+#
+#   integer {size = 23;} my_field
+#
+#   string my_field[101]
+#
+#   struct hello {
+#       int a;
+#       unsigned long b;
+#   } my_field[ref][42]
+#
+#   variant some_variant_ref <tag_ref> my_field
+class TypeField(Node):
+    grammar = Type, Identifier, pypeg2.maybe_some(UnaryExprSubscript)
 
     def __init__(self, args):
-        if type(args[0]) is Type:
-            self._type = args[0].type
-            args.pop(0)
-            decl_name = args[0].name
-            args.pop(0)
-            self._decl = Declarator(decl_name, args)
-        else:
-            self._type = []
-            subscripts = []
-
-            for a in args:
-                if type(a) is Identifier:
-                    self._type.append(a.name)
-                elif type(a) is UnaryExprSubscript:
-                    subscripts.append(a)
-
-            decl_name = self._type.pop()
-            self._decl = Declarator(decl_name, subscripts)
+        self._type = args[0].value
+        args.pop(0)
+        decl_name = args[0]
+        args.pop(0)
+        self._decl = Declarator(decl_name, args)
 
     @property
     def type(self):
-        if type(self._type) is list:
-            return ' '.join(self._type)
-
         return self._type
 
     @type.setter
@@ -741,71 +681,144 @@ class Field:
         return self._decl
 
     def __str__(self):
-        if type(self._type) is list:
-            type_in = ' '.join(self._type)
-        else:
-            type_in = str(self._type)
-
-        t = '<type>{}</type>'.format(type_in)
-        decl = str(self._decl)
-
-        return '<field>{}{}</field>'.format(t, decl)
+        return '<type-field>{}{}</type-field>'.format(str(self._type),
+                                                      str(self._decl))
 
 
-class Entries(List):
+# examples:
+#
+#   my_alias my_field
+#   int my_field[3]
+#   unsigned long my_field[other_field]
+#   int a[1][2][a][b][c]
+class IdentifierField(Node):
+    # Here's the hackish way to parse fields like:
+    #
+    #   int a
+    #   int a[23]
+    #   unsigned long b
+    #   unsigned long b[23]
+    #
+    # We scan for identifiers and assume the last one is the declarator
+    # name, not part of the type alias. Then come subscripts.
+    grammar = pypeg2.some(Identifier), pypeg2.maybe_some(UnaryExprSubscript)
+
+    def __init__(self, args):
+        self._type = []
+        subscripts = []
+
+        for a in args:
+            if type(a) is Identifier:
+                self._type.append(a.value)
+            elif type(a) is UnaryExprSubscript:
+                subscripts.append(a)
+
+        decl_name = self._type.pop()
+        self._decl = Declarator(Identifier(decl_name), subscripts)
+
+        # may contain spaces -> not really an identifier; still simpler
+        self._type = Identifier(' '.join(self._type))
+
+    @property
+    def type(self):
+        return self._type
+
+    @type.setter
+    def type(self, type):
+        self._type = type
+
+    @property
+    def decl(self):
+        return self._decl
+
+    def __str__(self):
+        return '<id-field>{}{}</id-field>'.format(str(self._type),
+                                                  str(self._decl))
+
+
+class Field(_SingleValue, Node):
+    grammar = [TypeField, IdentifierField]
+
+    def __init__(self, field):
+        super().__init__(field)
+
+    def __str__(self):
+        # this is normally never exposed
+        raise RuntimeError()
+
+
+class StructVariantEntries(_List):
     def __init__(self, fields=[]):
+        for i in range(len(fields)):
+            if type(fields[i]) is Field:
+                fields[i] = fields[i].value
+
         super().__init__(fields)
 
+    def __str__(self):
+        # this is normally never exposed
+        raise RuntimeError()
 
-class StructRef:
+
+# examples:
+#
+#   struct hello
+#   struct sweet
+class StructRef(_SingleValue, Node):
     grammar = 'struct', Identifier
 
     def __init__(self, name):
-        self._name = name.name
-
-    @property
-    def name(self):
-        return self._name
+        super().__init__(name)
 
     def __str__(self):
-        return '<struct name="{}" />'.format(self._name)
+        return '<struct-ref>{}</struct-ref>'.format(str(self.value))
 
 
-class Scope:
-    def _set_entries(self, entries):
+# examples:
+#
+#   align(8)
+#   align(0x20)
+class StructAlign(_SingleValue, Node):
+    grammar = 'align', '(', ConstInteger, ')'
+
+    def __init__(self, align):
+        super().__init__(align)
+
+    def __str__(self):
+        return '<struct-align>{}</struct-align>'.format(str(self.value))
+
+
+class Scope(Node):
+    def __init__(self, entries):
         self._entries = entries
-        self._entries_dict = {}
-
-        for entry in self._entries:
-            if type(entry) is ValueAssignment:
-                self._entries_dict[entry.key] = entry.value
-
-            # TODO: fill entries dict with type assignments
 
     @property
     def entries(self):
         return self._entries
 
-    def _get_entries_str(self):
-        s = '<entries>'
 
-        for e in self._entries:
-            s += str(e)
-
-        s += '</entries>'
-
-        return s
-
-    def __getitem__(self, key):
-        return self._entries_dict[key]
-
-
+# examples:
+#
+#   struct named {
+#       int a;
+#       int b[23];
+#   }
+#
+#   struct {
+#       int a;
+#       int b[23];
+#   } align(8)
+#
+#   struct yeah {
+#       float a[c];
+#       int z;
+#   } align(0x10)
 class StructFull(Scope):
     grammar = (
         'struct',
         pypeg2.optional(Identifier),
-        '{', Entries, '}',
-        pypeg2.optional(('align', '(', ConstInteger, ')'))
+        '{', StructVariantEntries, '}',
+        pypeg2.optional(StructAlign)
     )
 
     def __init__(self, args):
@@ -813,14 +826,14 @@ class StructFull(Scope):
         self._align = None
 
         if type(args[0]) is Identifier:
-            self._name = args[0].name
+            self._name = args[0]
             args.pop(0)
 
-        self._set_entries(args[0])
+        super().__init__(args[0].elements)
         args.pop(0)
 
         if args:
-            self._align = args[0].value
+            self._align = args[0]
 
     @property
     def name(self):
@@ -831,55 +844,57 @@ class StructFull(Scope):
         return self._align
 
     def __str__(self):
-        name = ''
-        align = ''
+        struct = '<struct-full>'
 
         if self._name is not None:
-            name = 'name="{}"'.format(self._name)
+            struct += str(self._name)
+
+        for e in self.entries:
+            struct += str(e)
 
         if self._align is not None:
-            align = 'align="{}"'.format(self._align)
+            struct += str(self._align)
 
-        entries = self._get_entries_str()
-        struct = '<struct {} {}>{}</struct>'.format(name, align, entries)
+        struct += '</struct-full>'
 
         return struct
 
 
-class Struct:
+class Struct(_SingleValue):
     grammar = [StructFull, StructRef]
 
     def __init__(self, struct):
-        self._struct = struct
-
-    @property
-    def struct(self):
-        return self._struct
+        super().__init__(struct)
 
     def __str__(self):
-        return str(self._struct)
+        # this is normally never exposed
+        raise RuntimeError()
 
 
-class VariantTag:
+# examples:
+#
+#   <field>
+#   <packet.context.some_field>
+class VariantTag(_SingleValue, Node):
     grammar = '<', UnaryExpr, '>'
 
     def __init__(self, expr):
-        self._expr = expr
-
-    @property
-    def expr(self):
-        return self._expr
+        super().__init__(expr)
 
     def __str__(self):
-        return '<tag>{}</tag>'.format(str(self._expr))
+        return '<tag>{}</tag>'.format(str(self.value))
 
 
-class VariantRef:
+# examples:
+#
+#   variant name <field>
+#   variant name <packet.context.some_field>
+class VariantRef(Node):
     grammar = 'variant', Identifier, VariantTag
 
     def __init__(self, args):
-        self._name = args[0].name
-        self._tag = args[1].expr
+        self._name = args[0]
+        self._tag = args[1]
 
     @property
     def name(self):
@@ -890,18 +905,29 @@ class VariantRef:
         return self._tag
 
     def __str__(self):
-        name = 'name="{}"'.format(self._name)
-        variant = '<variant {}>{}</variant>'.format(name, str(self._tag))
-
-        return variant
+        return '<variant-ref>{}{}</variant-ref>'.format(str(self._name),
+                                                        str(self._tag))
 
 
-class VariantFull(Scope):
+# examples:
+#
+#   variant named <field> {
+#       int a;
+#       unsigned long b;
+#       struct yeah c[17];
+#   }
+#
+#   variant <packet.context.some_field> {
+#       int a;
+#       unsigned long b;
+#       struct yeah c[17];
+#   }
+class VariantFull(Scope, Node):
     grammar = (
         'variant',
         pypeg2.optional(Identifier),
         pypeg2.optional(VariantTag),
-        '{', Entries, '}'
+        '{', StructVariantEntries, '}'
     )
 
     def __init__(self, args):
@@ -909,14 +935,14 @@ class VariantFull(Scope):
         self._tag = None
 
         if type(args[0]) is Identifier:
-            self._name = args[0].name
+            self._name = args[0]
             args.pop(0)
 
         if type(args[0]) is VariantTag:
-            self._tag = args[0].expr
+            self._tag = args[0]
             args.pop(0)
 
-        self._set_entries(args[0])
+        super().__init__(args[0])
 
     @property
     def name(self):
@@ -931,69 +957,55 @@ class VariantFull(Scope):
         self._tag = tag
 
     def __str__(self):
-        name = ''
-        tag = ''
+        variant = '<variant-full>'
 
         if self._name is not None:
-            name = 'name="{}"'.format(self._name)
+            variant += str(self._name)
 
         if self._tag is not None:
-            tag = str(self._tag)
+            variant += str(self._tag)
 
-        entries = self._get_entries_str()
-        fmt = '<variant {}>{}{}</variant>'
-        variant = fmt.format(name, tag, entries)
+        for e in self.entries:
+            variant += str(e)
+
+        variant += '</variant-full>'
 
         return variant
 
 
-class Variant:
+class Variant(_SingleValue):
     grammar = [VariantFull, VariantRef]
 
     def __init__(self, variant):
-        self._variant = variant
-
-    @property
-    def variant(self):
-        return self._variant
+        super().__init__(variant)
 
     def __str__(self):
-        return str(self._variant)
+        # this is normally never exposed
+        raise RuntimeError()
 
 
-class ValueAssignment:
-    grammar = Identifier, '=', [Identifier, LiteralString, ConstNumber]
-
-    def __init__(self, args):
-        self._key = args[0].name
-
-        if type(args[1]) is LiteralString or type(args[1]) is ConstNumber:
-            self._value = args[1].value
-        else:
-            self._value = args[1]
-
-    @property
-    def key(self):
-        return self._key
-
-    @property
-    def value(self):
-        return self._value
-
-    def __str__(self):
-        key = 'key="{}"'.format(self._key)
-        value = '<value>{}</value>'.format(str(self._value))
-        assign = '<value-assignment {}>{}</value-assignment>'.format(key, value)
-
-        return assign
-
-
-class TypeAssignment:
+# examples:
+#
+#   key := struct yeah
+#
+#   key := some_alias
+#
+#   key := struct {
+#       int a;
+#       int b[17];
+#   }
+#
+#   packet.header := struct {
+#       uint32_t magic;
+#       uint8_t  uuid[16];
+#       uint32_t stream_id;
+#   }
+class TypeAssignment(Node):
     grammar = UnaryExpr, ':=', Type
 
     def __init__(self, args):
-        self._key = args[0].expr
-        self._type = args[1].type
+        self._key = args[0]
+        self._type = args[1].value
 
     @property
     def key(self):
@@ -1008,11 +1020,8 @@ class TypeAssignment:
         self._type = type
 
     def __str__(self):
-        key = '<key>{}</key>'.format(self._key)
-        type = '<type>{}</type>'.format(str(self._type))
-        assign = '<type-assignment>{}{}</type-assignment>'.format(key, type)
-
-        return assign
+        return '<type-assign>{}{}</type-assign>'.format(str(self._key),
+                                                        str(self._type))
 
 
 _common_scope_entries = [
@@ -1028,7 +1037,7 @@ _scope_entries = pypeg2.maybe_some((
 ))
 
 
-Entries.grammar = pypeg2.maybe_some((
+StructVariantEntries.grammar = pypeg2.maybe_some((
     [Field] + _common_scope_entries,
     ';'
 ))
@@ -1040,17 +1049,20 @@ Type.grammar = [Struct, Variant, Enum, Integer, FloatingPoint, String]
 class TopLevelScope(Scope):
     @staticmethod
     def _create_scope(clsname, scope_name):
-        return type(clsname, (TopLevelScope, object), {
+        return type(clsname, (TopLevelScope, Node, object), {
             'grammar': (scope_name, '{', _scope_entries, '}'),
             '_scope_name': scope_name
         })
 
     def __init__(self, entries=[]):
-        self._set_entries(entries)
+        super().__init__(entries)
 
     def __str__(self):
-        s = '<{sn}>{e}</{sn}>'.format(sn=self._scope_name,
-                                      e=self._get_entries_str())
+        entries = ''
+        for e in self.entries:
+            entries += str(e)
+
+        s = '<{sn}>{e}</{sn}>'.format(sn=self._scope_name, e=entries)
 
         return s
 
@@ -1064,18 +1076,385 @@ Top = TopLevelScope._create_scope('Top', 'top')
 
 
 Top.grammar = pypeg2.maybe_some((
-    [Env, Trace, Clock, Stream, Event] + _common_scope_entries,
-    ';'
+    [Env, Trace, Clock, Stream, Event] + _common_scope_entries, ';'
 ))
-
-
-class Doc:
-    pass
 
 
 class ParseError(RuntimeError):
     def __init__(self, str):
         super().__init__(str)
+
+
+class _TypeResolverVisitor:
+    def __init__(self):
+        self._reset_state()
+
+    def _reset_state(self):
+        self._scope_stores = []
+
+    def _get_cur_scope_store(self):
+        return self._scope_stores[-1]
+
+    def _push_scope_store(self):
+        self._scope_stores.append({})
+
+    def _pop_scope_store(self):
+        return self._scope_stores.pop()
+
+    def _store(self, prefix, name, node):
+        ss = self._get_cur_scope_store()
+        ss[prefix + name] = node
+
+    def _resolve(self, prefix, name):
+        search = prefix + name
+
+        for ss in reversed(self._scope_stores):
+            if search in ss:
+                return ss[search]
+
+        reftype = {
+            'a': 'alias',
+            's': 'struct',
+            'v': 'variant',
+        }
+
+        raise ParseError('cannot resolve {}: {}'.format(reftype[prefix], name))
+
+    def _store_alias(self, name, node):
+        self._store('a', name, node)
+
+    def _resolve_alias(self, name):
+        return self._resolve('a', name)
+
+    def _store_struct(self, name, node):
+        self._store('s', name, node)
+
+    def _resolve_struct(self, name):
+        return self._resolve('s', name)
+
+    def _store_variant(self, name, node):
+        self._store('v', name, node)
+
+    def _resolve_variant(self, name):
+        return self._resolve('v', name)
+
+    def _visit_scope(self, node):
+        self._push_scope_store()
+
+        for entry in node.entries:
+            entry.accept(self)
+
+        self._pop_scope_store()
+
+    def visit(self, node):
+        if node.is_scope():
+            self._visit_scope(node)
+
+    def visit_Top(self, node):
+        self._reset_state()
+
+        self._visit_scope(node)
+
+    def visit_TypeAlias(self, node):
+        self._store_alias(node.name.value, node.type)
+
+    def visit_StructFull(self, node):
+        if node.name is not None:
+            self._store_struct(node.name.value, node)
+
+        self._visit_scope(node)
+
+    def visit_VariantFull(self, node):
+        if node.name is not None:
+            self._store_variant(node.name.value, node)
+
+        self._visit_scope(node)
+
+    def _visit_field_typeassignment(self, node):
+        field_type = node.type
+
+        if field_type.is_scope():
+            field_type.accept(self)
+        else:
+            if type(field_type) is StructRef:
+                node.type = self._resolve_struct(field_type.value.value)
+            elif type(field_type) is VariantRef:
+                variant = self._resolve_variant(field_type.value.value)
+                variant_copy = copy.deepcopy(variant)
+                variant_copy.tag = field_type.tag
+                node.type = variant_copy
+            elif type(field_type) is Identifier:
+                node.type = self._resolve_alias(field_type.value)
+            elif type(field_type) is Enum:
+                int_type = field_type.int_type
+                field_type.int_type = self._resolve_alias(int_type.value)
+
+    def visit_IdentifierField(self, node):
+        self._visit_field_typeassignment(node)
+
+    def visit_TypeField(self, node):
+        self._visit_field_typeassignment(node)
+
+    def visit_TypeAssignment(self, node):
+        self._visit_field_typeassignment(node)
+
+
+class _DocCreatorVisitor:
+    _byte_order_map = {
+        'le': pytsdl.tsdl.ByteOrder.LE,
+        'be': pytsdl.tsdl.ByteOrder.BE,
+        'network': pytsdl.tsdl.ByteOrder.BE,
+        'native': pytsdl.tsdl.ByteOrder.NATIVE,
+    }
+
+    def __init__(self):
+        self._value_assignment_map = {
+            pytsdl.tsdl.Trace: self._value_assign_trace,
+            pytsdl.tsdl.Env: self._value_assign_env,
+            pytsdl.tsdl.Clock: self._value_assign_clock,
+            pytsdl.tsdl.Stream: self._value_assign_stream,
+            pytsdl.tsdl.Event: self._value_assign_event,
+        }
+
+        self._reset_state()
+
+    @staticmethod
+    def _to_bool(s):
+        sl = s.lower()
+
+        if not re.match(r'true|false|1|0', sl):
+            raise ParseError('wrong boolean: {}'.format(sl))
+
+
+        return sl == 'true' or sl == '1'
+
+    def _reset_state(self):
+        self._objs = []
+
+    def _get_cur_obj(self):
+        return self._objs[-1]
+
+    def _push_obj(self, obj):
+        self._objs.append(obj)
+
+    def _pop_obj(self):
+        return self._objs.pop()
+
+    def _visit_scope(self, node, obj):
+        self._push_obj(obj)
+
+        for entry in node.entries:
+            entry.accept(self)
+
+        return self._pop_obj()
+
+    def visit(self, node):
+        pass
+
+    def visit_Top(self, node):
+        self._reset_state()
+        self._doc = self._visit_scope(node, pytsdl.tsdl.Doc())
+
+        if not self._doc.clocks:
+            raise ParseError('no clocks defined')
+
+        if not self._doc.streams:
+            raise ParseError('no streams defined')
+
+        cnames = set()
+
+        for c in self._doc.clocks:
+            if c.name in cnames:
+                raise ParseError('duplicate clock: {}'.format(c.name))
+
+            cnames.add(c.name)
+
+        sids = set()
+
+        for s in self._doc.streams:
+            if s.id in sids:
+                raise ParseError('duplicate stream: {}'.format(s.id))
+
+            sids.add(s.id)
+
+            enames = set()
+            eids = set()
+
+            for e in s.events:
+                if e.name in enames:
+                    raise ParseError('duplicate event: {}'.format(e.name))
+
+                enames.add(e.name)
+
+                if e.id in eids:
+                    raise ParseError('duplicate event: {}'.format(e.id))
+
+                eids.add(e.id)
+
+        self._doc.init_dicts()
+
+    def visit_Trace(self, node):
+        doc = self._get_cur_obj()
+        trace = self._visit_scope(node, pytsdl.tsdl.Trace())
+
+        if trace.major is None:
+            raise ParseError('trace block is missing major version')
+
+        if trace.minor is None:
+            raise ParseError('trace block is missing minor version')
+
+        doc.trace = trace
+
+    def visit_Env(self, node):
+        doc = self._get_cur_obj()
+        doc.env = self._visit_scope(node, pytsdl.tsdl.Env())
+
+    def visit_Clock(self, node):
+        doc = self._get_cur_obj()
+        clock = self._visit_scope(node, pytsdl.tsdl.Clock())
+
+        if clock.name is None:
+            raise ParseError('clock block is missing name')
+
+        if clock.freq is None:
+            raise ParseError('clock block is missing frequency')
+
+        doc.clocks.append(clock)
+
+    def visit_Stream(self, node):
+        doc = self._get_cur_obj()
+        stream = self._visit_scope(node, pytsdl.tsdl.Stream())
+        doc.streams.append(stream)
+
+    def visit_Event(self, node):
+        doc = self._get_cur_obj()
+        event = pytsdl.tsdl.Event()
+        event.stream_id = None
+        event = self._visit_scope(node, event)
+
+        if event.id is None:
+            raise ParseError('event is missing ID')
+
+        if event.name is None:
+            raise ParseError('event is missing name')
+
+        sid = 0
+
+        if event.stream_id is not None:
+            sid = event.stream_id
+
+        found_stream = False
+
+        for s in doc.streams:
+            if s.id == sid:
+                s.events.append(event)
+                found_stream = True
+
+        if not found_stream:
+            msg = 'stream {} not found for event {}'.format(sid, event.name)
+
+            raise ParseError(msg)
+
+    def _value_assign_trace(self, node):
+        trace = self._get_cur_obj()
+        key = node.key.value
+        value = node.value.expr
+
+        if key == 'major':
+            trace.major = value.value
+        elif key == 'minor':
+            trace.minor = value.value
+        elif key == 'uuid':
+            try:
+                trace.uuid = uuid.UUID('{{{}}}'.format(value.value))
+            except:
+                raise ParseError('wrong UUID: {}'.format(value.value))
+        elif key == 'byte_order':
+            bo = value[0].value
+
+            if bo not in _DocCreatorVisitor._byte_order_map:
+                raise ParseError('wrong byte order: {}'.format(bo))
+
+            trace.byte_order = _DocCreatorVisitor._byte_order_map[bo]
+        else:
+            # TODO: unknown key?
+            pass
+
+    def _value_assign_env(self, node):
+        env = self._get_cur_obj()
+        key = node.key.value
+        value = node.value.expr
+
+        if type(value) not in [LiteralString, ConstNumber]:
+            raise ParseError('wrong env value: {}'.format(node.value))
+
+        env[key] = value.value
+
+    def _value_assign_clock(self, node):
+        clock = self._get_cur_obj()
+        key = node.key.value
+        value = node.value.expr
+
+        if key == 'name':
+            clock.name = value[0].value
+        elif key == 'description':
+            clock.description = value.value
+        elif key == 'freq':
+            clock.freq = value.value
+        elif key == 'precision':
+            clock.precision = value.value
+        elif key == 'offset_s':
+            clock.offset_s = value.value
+        elif key == 'offset':
+            clock.offset = value.value
+        elif key == 'absolute':
+            clock.absolute = _DocCreatorVisitor._to_bool(value[0].value)
+        elif key == 'uuid':
+            try:
+                clock.uuid = uuid.UUID('{{{}}}'.format(value.value))
+            except:
+                raise ParseError('wrong UUID: {}'.format(value.value))
+        else:
+            # TODO: unknown key?
+            pass
+
+    def _value_assign_stream(self, node):
+        stream = self._get_cur_obj()
+        key = node.key.value
+        value = node.value.expr
+
+        if key == 'id':
+            stream.id = value.value
+        else:
+            # TODO: unknown key?
+            pass
+
+    def _value_assign_event(self, node):
+        event = self._get_cur_obj()
+        key = node.key.value
+        value = node.value.expr
+
+        if key == 'id':
+            event.id = value.value
+        if key == 'name':
+            event.name = value.value
+        if key == 'stream_id':
+            event.stream_id = value.value
+        else:
+            # TODO: unknown key?
+            pass
+
+    def visit_ValueAssignment(self, node):
+        obj = self._get_cur_obj()
+        self._value_assignment_map[type(obj)](node)
+
+    def visit_TypeAssignment(self, node):
+        obj = self._get_cur_obj()
+        #print(node.type)
+
+    @property
+    def doc(self):
+        return self._doc
 
 
 class Parser:
@@ -1088,112 +1467,13 @@ class Parser:
 
         return ast
 
-    @staticmethod
-    def _resolve_type(scope_stores, typeid):
-        for scope_store in reversed(scope_stores):
-            if typeid in scope_store:
-                resolved = scope_store[typeid]
-
-                if type(resolved) is VariantFull:
-                    return copy.deepcopy(resolved)
-
-                return scope_store[typeid]
-
-        raise ParseError('cannot resolve type: {}'.format(typeid[1:]))
-
-    @staticmethod
-    def _resolve_struct(scope_stores, name):
-        return Parser._resolve_type(scope_stores, 's' + name)
-
-    @staticmethod
-    def _resolved_variant(scope_stores, name):
-        return Parser._resolve_type(scope_stores, 'v' + name)
-
-    @staticmethod
-    def _resolve_alias(scope_stores, name):
-        return Parser._resolve_type(scope_stores, 'a' + name)
-
-    @staticmethod
-    def _resolve_types(scope, scope_stores):
-        scope_store = {}
-        scope_stores.append(scope_store)
-
-        for entry in scope.entries:
-            if type(entry) is TypeAlias:
-                scope_store['a' + entry.name] = entry.type
-            elif type(entry) is StructFull:
-                if entry.name is not None:
-                    scope_store['s' + entry.name] = entry
-            elif type(entry) is VariantFull:
-                if entry.name is not None:
-                    scope_store['v' + entry.name] = entry
-            elif type(entry) is TypeAssignment or type(entry) is Field:
-                subtype = entry.type
-
-                if (isinstance(subtype, Scope)):
-                    if type(entry) is Field:
-                        if type(subtype) is StructFull:
-                            if subtype.name is not None:
-                                scope_store['s' + subtype.name] = subtype
-                        elif type(subtype) is VariantFull:
-                            if subtype.name is not None:
-                                scope_store['v' + subtype.name] = subtype
-
-                    Parser._resolve_types(subtype, scope_stores)
-                else:
-                    if type(entry.type) is StructRef:
-                        entry.type = Parser._resolve_struct(scope_stores,
-                                                           subtype.name)
-                    elif type(entry.type) is VariantRef:
-                        _resolved_variant = Parser.resolve_variant(scope_stores,
-                                                                  subtype.name)
-                        _resolved_variant.tag = subtype.tag
-                        entry.type = _resolved_variant
-                    elif type(entry.type) is str:
-                        entry.type = Parser._resolve_alias(scope_stores,
-                                                          subtype)
-                    elif type(subtype) is Enum:
-                        int_type = subtype.int_type
-                        subtype.int_type = Parser._resolve_alias(scope_stores,
-                                                                int_type)
-
-            if isinstance(entry, Scope):
-                Parser._resolve_types(entry, scope_stores)
-
-        scope_stores.pop()
-
-    @staticmethod
-    def _get_doc_from_ast(ast):
-        doc = Doc()
-        doc.trace = None
-        doc.env = None
-        doc.clocks = []
-        doc.streams = []
-        doc.events = []
-
-        for entry in ast.entries:
-            if type(entry) is Trace:
-                doc.trace = entry
-            elif type(entry) is Env:
-                doc.env = entry
-            elif type(entry) is Clock:
-                doc.clocks.append(entry)
-            elif type(entry) is Stream:
-                doc.streams.append(entry)
-            elif type(entry) is Event:
-                doc.events.append(entry)
-
-        if doc.trace is None:
-            raise ParseError('missing trace block')
-
-        if doc.clocks is None:
-            raise ParseError('missing clock block')
-
-        return doc
-
     def parse(self, tsdl):
         ast = self.get_ast(tsdl)
-        Parser._resolve_types(ast, [])
-        doc = Parser._get_doc_from_ast(ast)
 
-        return doc
+        visitor = _TypeResolverVisitor()
+        ast.accept(visitor)
+
+        visitor = _DocCreatorVisitor()
+        ast.accept(visitor)
+
+        return visitor._doc
