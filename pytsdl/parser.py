@@ -1291,6 +1291,8 @@ class _DocCreatorVisitor:
 
                 eids.add(e.id)
 
+            s.init_events_dict()
+
         self._doc.init_dicts()
 
     def visit_Trace(self, node):
