@@ -1207,6 +1207,31 @@ class _DocCreatorVisitor:
         'native': pytsdl.tsdl.ByteOrder.NATIVE,
     }
 
+    _base_map = {
+        'decimal': 10,
+        'dec': 10,
+        'd': 10,
+        'i': 10,
+        'u': 10,
+        'hexadecimal': 16,
+        'hex': 16,
+        'x': 16,
+        'X': 16,
+        'p': 16,
+        'octal': 8,
+        'oct': 8,
+        'o': 8,
+        'binary': 2,
+        'bin': 2,
+        'b': 2,
+    }
+
+    _encoding_map = {
+        'none': pytsdl.tsdl.Encoding.NONE,
+        'UTF8': pytsdl.tsdl.Encoding.UTF8,
+        'ASCII': pytsdl.tsdl.Encoding.ASCII,
+    }
+
     def __init__(self):
         self._value_assignment_map = {
             pytsdl.tsdl.Trace: self._value_assign_trace,
@@ -1214,6 +1239,22 @@ class _DocCreatorVisitor:
             pytsdl.tsdl.Clock: self._value_assign_clock,
             pytsdl.tsdl.Stream: self._value_assign_stream,
             pytsdl.tsdl.Event: self._value_assign_event,
+            pytsdl.tsdl.Integer: self._value_assign_integer,
+        }
+
+        self._type_assignment_map = {
+            pytsdl.tsdl.Trace: self._type_assign_trace,
+            pytsdl.tsdl.Stream: self._type_assign_stream,
+            pytsdl.tsdl.Event: self._type_assign_event,
+        }
+
+        self._type_to_obj_map = {
+            Integer: self._integer_to_obj,
+            FloatingPoint: self._floating_point_to_obj,
+            String: self._string_to_obj,
+            Enum: self._enum_to_obj,
+            StructFull: self._struct_to_obj,
+            VariantFull: self._variant_to_obj,
         }
 
         self._reset_state()
@@ -1227,6 +1268,25 @@ class _DocCreatorVisitor:
 
 
         return sl == 'true' or sl == '1'
+
+    @staticmethod
+    def _decode_unary(uexpr):
+        if type(uexpr.expr) is PostfixExpr:
+            dec = []
+
+            for item in uexpr.expr:
+                if type(item) is Identifier:
+                    dec.append(item.value)
+                elif type(item) is Dot:
+                    pass
+                else:
+                    msg = 'cannot decode unary expression: {}'.format(uexpr)
+                    raise ParseError(msg)
+
+            return dec
+        else:
+            raise ParseError('cannot decode unary expression: {}'.format(uexpr))
+
 
     def _reset_state(self):
         self._objs = []
@@ -1357,10 +1417,8 @@ class _DocCreatorVisitor:
 
             raise ParseError(msg)
 
-    def _value_assign_trace(self, node):
+    def _value_assign_trace(self, key, value):
         trace = self._get_cur_obj()
-        key = node.key.value
-        value = node.value.expr
 
         if key == 'major':
             trace.major = value.value
@@ -1382,20 +1440,16 @@ class _DocCreatorVisitor:
             # TODO: unknown key?
             pass
 
-    def _value_assign_env(self, node):
+    def _value_assign_env(self, key, value):
         env = self._get_cur_obj()
-        key = node.key.value
-        value = node.value.expr
 
         if type(value) not in [LiteralString, ConstNumber]:
-            raise ParseError('wrong env value: {}'.format(node.value))
+            raise ParseError('wrong env value: {}'.format(value))
 
         env[key] = value.value
 
-    def _value_assign_clock(self, node):
+    def _value_assign_clock(self, key, value):
         clock = self._get_cur_obj()
-        key = node.key.value
-        value = node.value.expr
 
         if key == 'name':
             clock.name = value[0].value
@@ -1420,10 +1474,8 @@ class _DocCreatorVisitor:
             # TODO: unknown key?
             pass
 
-    def _value_assign_stream(self, node):
+    def _value_assign_stream(self, key, value):
         stream = self._get_cur_obj()
-        key = node.key.value
-        value = node.value.expr
 
         if key == 'id':
             stream.id = value.value
@@ -1431,10 +1483,8 @@ class _DocCreatorVisitor:
             # TODO: unknown key?
             pass
 
-    def _value_assign_event(self, node):
+    def _value_assign_event(self, key, value):
         event = self._get_cur_obj()
-        key = node.key.value
-        value = node.value.expr
 
         if key == 'id':
             event.id = value.value
@@ -1446,13 +1496,122 @@ class _DocCreatorVisitor:
             # TODO: unknown key?
             pass
 
+    def _value_assign_integer(self, key, value):
+        integer = self._get_cur_obj()
+
+        if key == 'size':
+            integer.size = value.value
+        elif key == 'signed':
+            if type(value) is ConstNumber:
+                integer.signed = _DocCreatorVisitor._to_bool(str(value.value))
+            else:
+                integer.signed = _DocCreatorVisitor._to_bool(value[0].value)
+        elif key == 'base':
+            if type(value) is ConstNumber:
+                integer.base = value.value
+            elif type(value) is UnaryExpr:
+                print('lol')
+
+        return integer
+
     def visit_ValueAssignment(self, node):
         obj = self._get_cur_obj()
-        self._value_assignment_map[type(obj)](node)
+        key = node.key.value
+        value = node.value.expr
+        self._value_assignment_map[type(obj)](key, value)
+
+    def _integer_to_obj(self, t):
+        self._push_obj(pytsdl.tsdl.Integer())
+
+        for a in t:
+            a.accept(self)
+
+        integer = self._pop_obj()
+
+        if integer.size is None:
+            raise ParseError('integer missing size')
+
+        return integer
+
+    def _floating_point_to_obj(self, t):
+        self._push_obj(pytsdl.tsdl.FloatingPoint())
+
+        for a in t:
+            a.accept(self)
+
+        floating_point = self._pop_obj()
+
+        if floating_point.exp_dig is None:
+            raise ParseError('floating point missing exponent digits')
+
+        if floating_point.mant_dig is None:
+            raise ParseError('floating point missing mantissa digits')
+
+        return floating_point
+
+    def _string_to_obj(self, t):
+        self._push_obj(pytsdl.tsdl.String())
+
+        for a in t:
+            a.accept(self)
+
+        return self._pop_obj()
+
+    def _enum_to_obj(self, t):
+        pass
+
+    def _field_to_obj(self, t):
+        ftype = t.type
+        fdecl = t.decl
+
+        # TODO: handle arrays and sequences here
+        if fdecl.subscripts:
+            return None
+
+        field = pytsdl.tsdl.Field()
+        field.name = fdecl.name
+        field.type = self._type_to_obj(ftype)
+
+        return field
+
+    def _struct_to_obj(self, t):
+        struct = pytsdl.tsdl.Struct()
+
+        for e in t.entries:
+            if type(e) is not IdentifierField and type(e) is not TypeField:
+                continue
+
+            field = self._field_to_obj(e)
+
+            # TODO: remove None check when arrays/sequences are supported
+            if field is not None:
+                struct.fields.append(field)
+
+        return struct
+
+    def _variant_to_obj(self, t):
+        pass
+
+    def _type_to_obj(self, t):
+        return self._type_to_obj_map[type(t)](t)
+
+    def _type_assign_trace(self, key, atype):
+        trace = self._get_cur_obj()
+
+        if key == 'packet.header':
+            trace.packet_header = self._type_to_obj(atype)
+
+    def _type_assign_stream(self, key, type):
+        pass
+
+    def _type_assign_event(self, key, type):
+        pass
 
     def visit_TypeAssignment(self, node):
         obj = self._get_cur_obj()
-        #print(node.type)
+        key = _DocCreatorVisitor._decode_unary(node.key)
+        key = '.'.join(key)
+        self._type_assignment_map[type(obj)](key, node.type)
 
     @property
     def doc(self):

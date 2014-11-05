@@ -8,3 +8,6 @@ if __name__ == '__main__':
 
     parser = pytsdl.parser.Parser()
     doc = parser.parse(tsdl)
+
+    print(doc.trace.major)
+    print(doc.clocks)

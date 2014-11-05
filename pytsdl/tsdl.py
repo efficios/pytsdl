@@ -23,6 +23,7 @@ class Integer:
         self._encoding = Encoding.NONE
         self._align = 1
         self._map = None
+        self._size = None
 
     @property
     def signed(self):
