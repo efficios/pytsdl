@@ -34,48 +34,14 @@ if v.major < 3:
     sys.exit(1)
 
 
-def _which(program):
-    import os
-
-    def is_exe(fpath):
-        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
-
-    fpath, fname = os.path.split(program)
-
-    if fpath:
-        if is_exe(program):
-            return program
-    else:
-        for path in os.environ['PATH'].split(os.pathsep):
-            path = path.strip('"')
-            exe_file = os.path.join(path, program)
-
-            if is_exe(exe_file):
-                return exe_file
-
-    return None
-
-
-# Because of a tarball wrongly distributed by PyPI, we cannot use
-# install_requires here. Running pip directly works, however.
-if len(sys.argv) > 1 and sys.argv[1] in ['install', 'develop']:
-    pip_exe = _which('pip3')
-
-    if pip_exe is None:
-        pip_exe = _which('pip')
-
-    if pip_exe is None:
-        print('Error: please install pip for Python 3 (pip3 on some distros)',
-              file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        if subprocess.call([pip_exe, 'install', 'pyPEG2', '--upgrade']) != 0:
-            raise RuntimeError()
-    except:
-        print('Error: cannot run "{} install pyPEG2 --upgrade"'.format(pip_exe),
-              file=sys.stderr)
-        sys.exit(1)
+# pyPEG2 needs to be installed manually until their PyPI tarball is
+# fixed for setuptools.
+try:
+    import pypeg2
+except ImportError:
+    sys.stderr.write('Please install pyPEG2 manually:\n\n')
+    sys.stderr.write('    sudo pip3 install pyPEG2\n')
+    sys.exit(1)
 
 
 packages = [
@@ -84,7 +50,7 @@ packages = [
 
 
 setup(name='pytsdl',
-      version=0.2,
+      version=0.3,
       description='TSDL parser implemented entirely in Python 3',
       author='Philippe Proulx',
       author_email='eeppeliteloop@gmail.com',
