@@ -1085,120 +1085,6 @@ class ParseError(RuntimeError):
         super().__init__(str)
 
 
-class _TypeResolverVisitor:
-    def __init__(self):
-        self._reset_state()
-
-    def _reset_state(self):
-        self._scope_stores = []
-
-    def _get_cur_scope_store(self):
-        return self._scope_stores[-1]
-
-    def _push_scope_store(self):
-        self._scope_stores.append({})
-
-    def _pop_scope_store(self):
-        return self._scope_stores.pop()
-
-    def _store(self, prefix, name, node):
-        ss = self._get_cur_scope_store()
-        ss[prefix + name] = node
-
-    def _resolve(self, prefix, name):
-        search = prefix + name
-
-        for ss in reversed(self._scope_stores):
-            if search in ss:
-                return ss[search]
-
-        reftype = {
-            'a': 'alias',
-            's': 'struct',
-            'v': 'variant',
-        }
-
-        raise ParseError('cannot resolve {}: {}'.format(reftype[prefix], name))
-
-    def _store_alias(self, name, node):
-        self._store('a', name, node)
-
-    def _resolve_alias(self, name):
-        return self._resolve('a', name)
-
-    def _store_struct(self, name, node):
-        self._store('s', name, node)
-
-    def _resolve_struct(self, name):
-        return self._resolve('s', name)
-
-    def _store_variant(self, name, node):
-        self._store('v', name, node)
-
-    def _resolve_variant(self, name):
-        return self._resolve('v', name)
-
-    def _visit_scope(self, node):
-        self._push_scope_store()
-
-        for entry in node.entries:
-            entry.accept(self)
-
-        self._pop_scope_store()
-
-    def visit(self, node):
-        if node.is_scope():
-            self._visit_scope(node)
-
-    def visit_Top(self, node):
-        self._reset_state()
-
-        self._visit_scope(node)
-
-    def visit_TypeAlias(self, node):
-        self._store_alias(node.name.value, node.type)
-
-    def visit_StructFull(self, node):
-        if node.name is not None:
-            self._store_struct(node.name.value, node)
-
-        self._visit_scope(node)
-
-    def visit_VariantFull(self, node):
-        if node.name is not None:
-            self._store_variant(node.name.value, node)
-
-        self._visit_scope(node)
-
-    def _visit_field_typeassignment(self, node):
-        field_type = node.type
-
-        if field_type.is_scope():
-            field_type.accept(self)
-        else:
-            if type(field_type) is StructRef:
-                node.type = self._resolve_struct(field_type.value.value)
-            elif type(field_type) is VariantRef:
-                variant = self._resolve_variant(field_type.value.value)
-                variant_copy = copy.deepcopy(variant)
-                variant_copy.tag = field_type.tag
-                node.type = variant_copy
-            elif type(field_type) is Identifier:
-                node.type = self._resolve_alias(field_type.value)
-            elif type(field_type) is Enum:
-                int_type = field_type.int_type
-                field_type.int_type = self._resolve_alias(int_type.value)
-
-    def visit_IdentifierField(self, node):
-        self._visit_field_typeassignment(node)
-
-    def visit_TypeField(self, node):
-        self._visit_field_typeassignment(node)
-
-    def visit_TypeAssignment(self, node):
-        self._visit_field_typeassignment(node)
-
-
 class _DocCreatorVisitor:
     _byte_order_map = {
         'le': pytsdl.tsdl.ByteOrder.LE,
@@ -1240,6 +1126,7 @@ class _DocCreatorVisitor:
             pytsdl.tsdl.Stream: self._value_assign_stream,
             pytsdl.tsdl.Event: self._value_assign_event,
             pytsdl.tsdl.Integer: self._value_assign_integer,
+            pytsdl.tsdl.FloatingPoint: self._value_assign_floating_point,
         }
 
         self._type_assignment_map = {
@@ -1253,8 +1140,10 @@ class _DocCreatorVisitor:
             FloatingPoint: self._floating_point_to_obj,
             String: self._string_to_obj,
             Enum: self._enum_to_obj,
-            StructFull: self._struct_to_obj,
-            VariantFull: self._variant_to_obj,
+            StructFull: self._struct_full_to_obj,
+            VariantFull: self._variant_full_to_obj,
+            StructRef: self._struct_ref_to_obj,
+            VariantRef: self._variant_ref_to_obj,
         }
 
         self._reset_state()
@@ -1271,10 +1160,15 @@ class _DocCreatorVisitor:
 
     @staticmethod
     def _decode_unary(uexpr):
-        if type(uexpr.expr) is PostfixExpr:
+        expr = uexpr
+
+        if type(uexpr) is UnaryExpr:
+            expr = uexpr.expr
+
+        if type(expr) is PostfixExpr:
             dec = []
 
-            for item in uexpr.expr:
+            for item in expr:
                 if type(item) is Identifier:
                     dec.append(item.value)
                 elif type(item) is Dot:
@@ -1287,9 +1181,76 @@ class _DocCreatorVisitor:
         else:
             raise ParseError('cannot decode unary expression: {}'.format(uexpr))
 
+    @staticmethod
+    def _byte_order_from_str(s):
+        if s not in _DocCreatorVisitor._byte_order_map:
+            raise ParseError('wrong byte order: {}'.format(s))
+
+        return _DocCreatorVisitor._byte_order_map[s]
+
+    @staticmethod
+    def _uuid_from_str(s):
+        try:
+            return uuid.UUID('{{{}}}'.format(s))
+        except:
+            raise ParseError('wrong UUID: {}'.format(s))
+
+    @staticmethod
+    def _encoding_from_str(s):
+        if s not in _DocCreatorVisitor._encoding_map:
+            raise ParseError('unknown encoding: {}'.format(s))
+
+        return _DocCreatorVisitor._encoding_map[s]
 
     def _reset_state(self):
         self._objs = []
+        self._scope_stores = []
+
+    def _get_cur_scope_store(self):
+        return self._scope_stores[-1]
+
+    def _push_scope_store(self):
+        self._scope_stores.append({})
+
+    def _pop_scope_store(self):
+        return self._scope_stores.pop()
+
+    def _store(self, prefix, name, obj):
+        ss = self._get_cur_scope_store()
+        ss[prefix + name] = obj
+
+    def _resolve(self, prefix, name):
+        search = prefix + name
+
+        for ss in reversed(self._scope_stores):
+            if search in ss:
+                return ss[search]
+
+        reftype = {
+            'a': 'alias',
+            's': 'struct',
+            'v': 'variant',
+        }
+
+        raise ParseError('cannot resolve {}: {}'.format(reftype[prefix], name))
+
+    def _store_alias(self, name, obj):
+        self._store('a', name, obj)
+
+    def _resolve_alias(self, name):
+        return self._resolve('a', name)
+
+    def _store_struct(self, name, obj):
+        self._store('s', name, obj)
+
+    def _resolve_struct(self, name):
+        return self._resolve('s', name)
+
+    def _store_variant(self, name, obj):
+        self._store('v', name, obj)
+
+    def _resolve_variant(self, name):
+        return self._resolve('v', name)
 
     def _get_cur_obj(self):
         return self._objs[-1]
@@ -1302,10 +1263,12 @@ class _DocCreatorVisitor:
 
     def _visit_scope(self, node, obj):
         self._push_obj(obj)
+        self._push_scope_store()
 
         for entry in node.entries:
             entry.accept(self)
 
+        self._pop_scope_store()
         return self._pop_obj()
 
     def visit(self, node):
@@ -1315,28 +1278,14 @@ class _DocCreatorVisitor:
         self._reset_state()
         self._doc = self._visit_scope(node, pytsdl.tsdl.Doc())
 
+        # ensure at least one clock, at least one stream
         if not self._doc.clocks:
             raise ParseError('no clocks defined')
 
         if not self._doc.streams:
             raise ParseError('no streams defined')
 
-        cnames = set()
-
-        for c in self._doc.clocks:
-            if c.name in cnames:
-                raise ParseError('duplicate clock: {}'.format(c.name))
-
-            cnames.add(c.name)
-
-        sids = set()
-
-        for s in self._doc.streams:
-            if s.id in sids:
-                raise ParseError('duplicate stream: {}'.format(s.id))
-
-            sids.add(s.id)
-
+        for s in self._doc.streams.values():
             enames = set()
             eids = set()
 
@@ -1351,9 +1300,12 @@ class _DocCreatorVisitor:
 
                 eids.add(e.id)
 
+            # safe to initialize stream's events dict now
             s.init_events_dict()
 
-        self._doc.init_dicts()
+    def visit_TypeAlias(self, node):
+        obj = self._type_to_obj(node.type)
+        self._store_alias(node.name.value, obj)
 
     def visit_Trace(self, node):
         doc = self._get_cur_obj()
@@ -1381,12 +1333,19 @@ class _DocCreatorVisitor:
         if clock.freq is None:
             raise ParseError('clock block is missing frequency')
 
-        doc.clocks.append(clock)
+        if clock.name in doc.clocks:
+            raise ParseError('duplicate clock: {}'.format(clock.name))
+
+        doc.clocks[clock.name] = clock
 
     def visit_Stream(self, node):
         doc = self._get_cur_obj()
         stream = self._visit_scope(node, pytsdl.tsdl.Stream())
-        doc.streams.append(stream)
+
+        if stream.id in doc.streams:
+            raise ParseError('duplicate stream: {}'.format(stream.id))
+
+        doc.streams[stream.id] = stream
 
     def visit_Event(self, node):
         doc = self._get_cur_obj()
@@ -1407,15 +1366,13 @@ class _DocCreatorVisitor:
 
         found_stream = False
 
-        for s in doc.streams:
-            if s.id == sid:
-                s.events.append(event)
-                found_stream = True
-
-        if not found_stream:
+        if sid not in doc.streams:
             msg = 'stream {} not found for event {}'.format(sid, event.name)
-
             raise ParseError(msg)
+
+        stream = doc.streams[sid]
+        stream.events.append(event)
+
 
     def _value_assign_trace(self, key, value):
         trace = self._get_cur_obj()
@@ -1425,17 +1382,10 @@ class _DocCreatorVisitor:
         elif key == 'minor':
             trace.minor = value.value
         elif key == 'uuid':
-            try:
-                trace.uuid = uuid.UUID('{{{}}}'.format(value.value))
-            except:
-                raise ParseError('wrong UUID: {}'.format(value.value))
+            trace.uuid = _DocCreatorVisitor._uuid_from_str(value.value)
         elif key == 'byte_order':
             bo = value[0].value
-
-            if bo not in _DocCreatorVisitor._byte_order_map:
-                raise ParseError('wrong byte order: {}'.format(bo))
-
-            trace.byte_order = _DocCreatorVisitor._byte_order_map[bo]
+            trace.byte_order = _DocCreatorVisitor._byte_order_from_str(bo)
         else:
             # TODO: unknown key?
             pass
@@ -1466,10 +1416,7 @@ class _DocCreatorVisitor:
         elif key == 'absolute':
             clock.absolute = _DocCreatorVisitor._to_bool(value[0].value)
         elif key == 'uuid':
-            try:
-                clock.uuid = uuid.UUID('{{{}}}'.format(value.value))
-            except:
-                raise ParseError('wrong UUID: {}'.format(value.value))
+            clock.uuid = _DocCreatorVisitor._uuid_from_str(value.value)
         else:
             # TODO: unknown key?
             pass
@@ -1496,6 +1443,21 @@ class _DocCreatorVisitor:
             # TODO: unknown key?
             pass
 
+    def _value_assign_floating_point(self, key, value):
+        floating_point = self._get_cur_obj()
+
+        if key == 'exp_dig':
+            floating_point.exp_dig = value.value
+        elif key == 'mant_dig':
+            floating_point.mant_dig = value.value
+        elif key == 'align':
+            floating_point.align = value.value
+        elif key == 'byte_order':
+            bo = value[0].value
+            integer.byte_order = _DocCreatorVisitor._byte_order_from_str(bo)
+        else:
+            raise ParseError('unknown floating point assignment: {}'.format(key))
+
     def _value_assign_integer(self, key, value):
         integer = self._get_cur_obj()
 
@@ -1509,10 +1471,31 @@ class _DocCreatorVisitor:
         elif key == 'base':
             if type(value) is ConstNumber:
                 integer.base = value.value
-            elif type(value) is UnaryExpr:
-                print('lol')
+            elif type(value) is PostfixExpr:
+                base = value[0].value
 
-        return integer
+                if base not in self._base_map:
+                    raise ParseError('invalid integer base: {}'.format(base))
+
+                integer.base = self._base_map[base]
+        elif key == 'encoding':
+            e = value[0].value
+            integer.encoding = _DocCreatorVisitor._encoding_from_str(e)
+        elif key == 'align':
+            integer.align = value.value
+        elif key == 'byte_order':
+            bo = value[0].value
+            integer.byte_order = _DocCreatorVisitor._byte_order_from_str(bo)
+        elif key == 'map':
+            map = _DocCreatorVisitor._decode_unary(value)
+
+            if map[0] != 'clock':
+                s = '.'.join(map)
+                raise ParseError('integer maps to non-clock node: {}'.format(s))
+
+            integer.map = map
+        else:
+            raise ParseError('unknown integer assignment: {}'.format(key))
 
     def visit_ValueAssignment(self, node):
         obj = self._get_cur_obj()
@@ -1550,62 +1533,151 @@ class _DocCreatorVisitor:
         return floating_point
 
     def _string_to_obj(self, t):
-        self._push_obj(pytsdl.tsdl.String())
+        string = pytsdl.tsdl.String()
 
-        for a in t:
-            a.accept(self)
+        if t.value is not None:
+            e = t.value.value.expr[0].value
+            string.encoding = _DocCreatorVisitor._encoding_from_str(e)
 
-        return self._pop_obj()
+        return string
 
     def _enum_to_obj(self, t):
-        pass
+        def check_label():
+            if label in enum.labels:
+                raise ParseError('duplicate enum label: {}'.format(label))
 
-    def _field_to_obj(self, t):
-        ftype = t.type
-        fdecl = t.decl
+        enum = pytsdl.tsdl.Enum()
+        integer = self._resolve_alias(t.int_type.value)
+        enum.integer = integer
+        cur = 0
 
-        # TODO: handle arrays and sequences here
-        if fdecl.subscripts:
-            return None
+        for e in t.enumerators:
+            if type(e) is Identifier or type(e) is LiteralString:
+                label = e.value
 
-        field = pytsdl.tsdl.Field()
-        field.name = fdecl.name
-        field.type = self._type_to_obj(ftype)
+                check_label()
 
-        return field
+                enum.labels[label] = (cur, cur)
+                cur += 1
+            elif type(e) is EnumeratorValue:
+                label = e.key.value
 
-    def _struct_to_obj(self, t):
-        struct = pytsdl.tsdl.Struct()
+                check_label()
 
-        for e in t.entries:
-            if type(e) is not IdentifierField and type(e) is not TypeField:
-                continue
+                cur = e.value.value
+                enum.labels[label] = (cur, cur)
+            elif type(e) is EnumeratorRange:
+                label = e.key.value
 
-            field = self._field_to_obj(e)
+                check_label()
 
-            # TODO: remove None check when arrays/sequences are supported
-            if field is not None:
-                struct.fields.append(field)
+                low = e.range.low.value
+                high = e.range.high.value
+
+                if low > high:
+                    raise ParseError('invalid enum range: {} > {}'.format(low, high))
+
+                enum.labels[label] = (low, high)
+                cur = high + 1
+
+        return enum
+
+    def visit_TypeField(self, t):
+        struct_variant = self._get_cur_obj()
+        struct_variant.fields[t.decl.name.value] = self._type_to_obj(t.type)
+
+    def visit_IdentifierField(self, t):
+        struct_variant = self._get_cur_obj()
+        field_obj = self._resolve_alias(t.type.value)
+        struct_variant.fields[t.decl.name.value] = field_obj
+
+    def visit_StructFull(self, t):
+        # This will only be called indirectly if we're visiting the
+        # entries of a scope, so we call self._struct_full_to_obj()
+        # to potentially store its type.
+        self._struct_full_to_obj(t)
+
+    def visit_VariantFull(self, t):
+        # This will only be called indirectly if we're visiting the
+        # entries of a scope, so we call self._variant_full_to_obj()
+        # to potentially store its type.
+        self._variant_full_to_obj(t)
+
+    def _struct_full_to_obj(self, t):
+        struct = self._visit_scope(t, pytsdl.tsdl.Struct())
+
+        if t.align:
+            struct.align = t.align.value.value
+
+        # store this struct if it's named
+        if t.name is not None:
+            self._store_struct(t.name.value, struct)
 
         return struct
 
-    def _variant_to_obj(self, t):
-        pass
+    def _struct_ref_to_obj(self, t):
+        struct = self._resolve_struct(t.value.value)
+
+        return struct
+
+    def _variant_full_to_obj(self, t):
+        variant = self._visit_scope(t, pytsdl.tsdl.Variant())
+
+        # store this variant if it's named
+        if t.name is not None:
+            self._store_variant(t.name.value, variant)
+
+        return variant
+
+    def _variant_ref_to_obj(self, t):
+        variant = self._resolve_variant(t.name.value)
+
+        # The resolved variant is actually a template, because this
+        # variant reference should have a specific tag. This is why a
+        # _shallow_ copy of the resolved variant is needed since all
+        # references pointing to it will have different tags.
+        variant_copy = copy.copy(variant)
+
+        # assign tag to copy now
+        variant_copy.tag = self._decode_unary(t.tag.value)
+
+        return variant
 
     def _type_to_obj(self, t):
         return self._type_to_obj_map[type(t)](t)
 
-    def _type_assign_trace(self, key, atype):
+    def _type_assign_trace(self, key, type):
         trace = self._get_cur_obj()
 
         if key == 'packet.header':
-            trace.packet_header = self._type_to_obj(atype)
+            trace.packet_header = self._type_to_obj(type)
+        else:
+            # TODO: unknown key?
+            pass
 
     def _type_assign_stream(self, key, type):
-        pass
+        stream = self._get_cur_obj()
+
+        if key == 'event.header':
+            stream.event_header = self._type_to_obj(type)
+        elif key == 'event.context':
+            stream.event_context = self._type_to_obj(type)
+        elif key == 'packet.context':
+            stream.packet_context = self._type_to_obj(type)
+        else:
+            # TODO: unknown key?
+            pass
 
     def _type_assign_event(self, key, type):
-        pass
+        event = self._get_cur_obj()
+
+        if key == 'fields':
+            event.fields = self._type_to_obj(type)
+        elif key == 'context':
+            event.context = self._type_to_obj(type)
+        else:
+            # TODO: unknown key?
+            pass
 
     def visit_TypeAssignment(self, node):
         obj = self._get_cur_obj()
@@ -1630,9 +1702,6 @@ class Parser:
 
     def parse(self, tsdl):
         ast = self.get_ast(tsdl)
-
-        visitor = _TypeResolverVisitor()
-        ast.accept(visitor)
 
         visitor = _DocCreatorVisitor()
         ast.accept(visitor)

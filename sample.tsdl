@@ -5,7 +5,7 @@ typealias integer { size = 32; align = 8; signed = false; } := uint32_t;
 typealias integer { size = 64; align = 8; signed = false; } := uint64_t;
 typealias integer { size = 64; align = 8; signed = false; } := unsigned long;
 typealias integer { size = 5; size = 23; align = 1; signed = false; } := uint5_t;
-typealias integer { size = 27; align = 1; signed = false; } := uint27_t;
+typealias integer { size = 27; align = 1; signed = false; base = x; } := uint27_t;
 
 
 trace {
@@ -14,10 +14,10 @@ trace {
 
     typealias string := zok;
 
-    typealias enum zokzok : unsigned long long {
+    typealias enum zokzok : unsigned long {
         LABEL1,
-        LABEL2 = 16...101,
-    } := caca;
+        "LABEL2 llz" = 16...101,
+    } := omg;
 
     byte_order = be;
 
@@ -43,11 +43,14 @@ struct a {
         THREE,
         TEN = 10,
         ELEVEN,
-        RANGE = 45...-192,
+        RANGE = 15...192,
     } field;
 
     struct a {
-        int len;
+        integer {
+            size = 19;
+            base = x;
+        } len;
     };
 
     int length;
@@ -56,6 +59,13 @@ struct a {
         struct a x[length];
         struct a y[a[5].len];
     } afield;
+
+    variant allo {
+        int a;
+        int b;
+    };
+
+    variant allo <zokzok> _mokmok;
 };
 
 env {
@@ -164,10 +174,6 @@ event {
         integer { size = 8; align = 8; signed = 1; encoding = UTF8; base = 10; } _prev_comm[16];
         integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _prev_tid;
         integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _prev_prio;
-        integer { size = 64; align = 8; signed = 1; encoding = none; base = 10; } _prev_state;
-        integer { size = 8; align = 8; signed = 1; encoding = UTF8; base = 10; } _next_comm[16];
-        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _next_tid;
-        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _next_prio;
     };
 };
 

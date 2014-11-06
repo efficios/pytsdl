@@ -1,3 +1,4 @@
+import collections
 import enum
 
 
@@ -124,7 +125,7 @@ class FloatingPoint:
 
 class Enum:
     def __init__(self):
-        self._labels = {}
+        self._labels = collections.OrderedDict()
 
     @property
     def integer(self):
@@ -149,6 +150,14 @@ class Enum:
         for label, vrange in self._labels.items():
             if value >= vrange[0] and value <= vrange[1]:
                 return label
+
+    def __getitem__(self, key):
+        if type(key) is str:
+            return self.value_of(key)
+        elif type(key) is int:
+            return self.label_of(key)
+
+        raise TypeError('wrong subscript type')
 
 
 class String:
@@ -193,47 +202,16 @@ class Sequence(_ArraySequence):
     pass
 
 
-class Field:
-    def __init__(self):
-        pass
-
-    @property
-    def name(self):
-        return self._name
-
-    @name.setter
-    def name(self, value):
-        self._name = value
-
-    @property
-    def type(self):
-        return self._type
-
-    @type.setter
-    def type(self, value):
-        self._type = value
-
-
 class _StructVariant:
     def __init__(self):
-        self._fields = []
-
-    def init_fields_dict(self):
-        self._fields_dict = {}
-
-        for f in self._fields:
-            self._fields_dict[f.name] = f.type
+        self._fields = collections.OrderedDict()
 
     @property
     def fields(self):
         return self._fields
 
-    @fields.setter
-    def fields(self, value):
-        self._fields = value
-
-    def get_field(self, name):
-        return self._fields_dict[name]
+    def __getitem__(self, key):
+        return self.fields[key]
 
 
 class Struct(_StructVariant):
@@ -251,7 +229,8 @@ class Struct(_StructVariant):
 
 
 class Variant(_StructVariant):
-    def __init__(self, tag, fields):
+    def __init__(self):
+        self._tag = None
         super().__init__()
 
     @property
@@ -397,9 +376,7 @@ class Event:
         self._id = None
         self._name = None
         self._loglevel = None
-        self._header = None
-        self._stream_event_ctx = None
-        self._ctx = None
+        self._context = None
         self._fields = None
 
     @property
@@ -427,28 +404,12 @@ class Event:
         self._loglevel = value
 
     @property
-    def header(self):
-        return self._header
+    def context(self):
+        return self._context
 
-    @header.setter
-    def header(self, value):
-        self._header = value
-
-    @property
-    def stream_event_ctx(self):
-        return self._stream_event_ctx
-
-    @stream_event_ctx.setter
-    def stream_event_ctx(self, value):
-        self._stream_event_ctx = value
-
-    @property
-    def ctx(self):
-        return self._ctx
-
-    @ctx.setter
-    def ctx(self, value):
-        self._ctx = value
+    @context.setter
+    def context(self, value):
+        self._context = value
 
     @property
     def fields(self):
@@ -458,11 +419,19 @@ class Event:
     def fields(self, value):
         self._fields = value
 
+    def __getitem__(self, key):
+        if type(self.fields) is _StructVariant:
+            return self.fields[key]
+
+        raise TypeError('{} is not subscriptable')
+
 
 class Stream:
     def __init__(self):
         self._id = 0
-        self._packet_ctx = None
+        self._packet_context = None
+        self._event_header = None
+        self._event_context = None
         self._events = []
 
     def init_events_dict(self):
@@ -481,12 +450,28 @@ class Stream:
         self._id = value
 
     @property
-    def packet_ctx(self):
-        return self._packet_ctx
+    def packet_context(self):
+        return self._packet_context
 
-    @packet_ctx.setter
-    def packet_ctx(self, value):
-        self._packet_ctx = value
+    @packet_context.setter
+    def packet_context(self, value):
+        self._packet_context = value
+
+    @property
+    def event_header(self):
+        return self._event_header
+
+    @event_header.setter
+    def event_header(self, value):
+        self._event_header = value
+
+    @property
+    def event_context(self):
+        return self._event_context
+
+    @event_context.setter
+    def event_context(self, value):
+        self._event_context = value
 
     @property
     def events(self):
@@ -504,18 +489,8 @@ class Doc:
     def __init__(self):
         self._trace = None
         self._env = None
-        self._clocks = []
-        self._streams = []
-
-    def init_dicts(self):
-        self._streams_dict = {}
-        self._clocks_dict = {}
-
-        for c in self._clocks:
-            self._clocks_dict[c.name] = c
-
-        for s in self._streams:
-            self._streams_dict[s.id] = s
+        self._clocks = collections.OrderedDict()
+        self._streams = collections.OrderedDict()
 
     @property
     def trace(self):
@@ -541,9 +516,6 @@ class Doc:
     def clocks(self, value):
         self._clocks = value
 
-    def get_clock(self, name):
-        return self._clocks_dict[name]
-
     @property
     def streams(self):
         return self._streams
@@ -551,6 +523,3 @@ class Doc:
     @streams.setter
     def streams(self, value):
         self._streams = value
-
-    def get_stream(self, stream_id):
-        return self._streams_dict[stream_id]
