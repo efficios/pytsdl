@@ -133,7 +133,7 @@ class ConstNumber(_SingleValue, Node):
     grammar = pypeg2.optional(re.compile(r'[+-]')), ConstInteger
 
     def __init__(self, args):
-        mul = 1;
+        mul = 1
 
         if len(args) == 2:
             if args[0] == '-':
@@ -507,6 +507,7 @@ class EnumName(_SingleValue):
     def __str__(self):
         # this is normally never exposed
         raise RuntimeError()
+
 
 # examples:
 #
@@ -1155,7 +1156,6 @@ class _DocCreatorVisitor:
         if not re.match(r'true|false|1|0', sl):
             raise ParseError('wrong boolean: {}'.format(sl))
 
-
         return sl == 'true' or sl == '1'
 
     @staticmethod
@@ -1372,7 +1372,6 @@ class _DocCreatorVisitor:
 
         stream = doc.streams[sid]
         stream.events.append(event)
-
 
     def _value_assign_trace(self, key, value):
         trace = self._get_cur_obj()
