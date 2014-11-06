@@ -1256,6 +1256,7 @@ Current limitations:
   * details of parsing errors are not always useful (pyPEG2 limitation)
   * partial semantic validation
   * `typedef` is not supported (`typealias` is)
+  * GNU/C bitfields are not supported
   * pointer syntax is not supported (`struct hello*`, `name->something`,
     etc.)
   * only the dot notation is supported for variant tags and sequence
