@@ -56,8 +56,8 @@ struct a {
     int length;
 
     struct {
-        struct a x[length];
-        struct a y[a[5].len];
+        struct a x[23][length];
+        struct a y[a.len];
     } afield;
 
     variant allo {
@@ -143,7 +143,7 @@ struct event_header_large {
 
 stream {
     id = 0;
-    event.header := struct event_header_compact;
+    event.header := struct a;
 };
 
 stream {

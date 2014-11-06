@@ -204,18 +204,18 @@ class PrimaryExpr(Node):
         return '<primary-expr>{}</primary-expr>'.format(str(self._expr))
 
 
-class UnaryExprSubscript(Node):
+class UnaryExprSubscript(_SingleValue, Node):
     grammar = '[', UnaryExpr, ']'
 
     def __init__(self, expr):
-        self._expr = expr.expr
+        super().__init__(expr)
 
     @property
     def expr(self):
         return self._expr
 
     def __str__(self):
-        return '<subscript-expr>{}</subscript-expr>'.format(str(self._expr))
+        return '<subscript-expr>{}</subscript-expr>'.format(str(self.value))
 
 
 # examples:
@@ -590,7 +590,7 @@ class Dot(Node):
 class Arrow(Node):
     grammar = '->'
 
-    def __init__(self, args):
+    def __init__(self):
         pass
 
     def __str__(self):
@@ -1581,14 +1581,45 @@ class _DocCreatorVisitor:
 
         return enum
 
+    @staticmethod
+    def _subscript_to_obj(subscript, element):
+        if type(subscript.value.expr) is PostfixExpr:
+            obj = pytsdl.tsdl.Sequence()
+            obj.length = _DocCreatorVisitor._decode_unary(subscript.value.expr)
+        elif type(subscript.value.expr) is ConstNumber:
+            obj = pytsdl.tsdl.Array()
+            obj.length = subscript.value.expr.value
+        else:
+            raise ParseError('invalid subscript type: {}'.format(subscript.value.expr))
+
+        obj.element = element
+
+        return obj
+
+    @staticmethod
+    def _decl_to_obj(decl, base_obj):
+        if not decl.subscripts:
+            return base_obj
+
+        cur_obj = _DocCreatorVisitor._subscript_to_obj(decl.subscripts[0],
+                                                       base_obj)
+
+        for subscript in decl.subscripts[1:]:
+            cur_obj = _DocCreatorVisitor._subscript_to_obj(subscript, cur_obj)
+
+        return cur_obj
+
     def visit_TypeField(self, t):
         struct_variant = self._get_cur_obj()
-        struct_variant.fields[t.decl.name.value] = self._type_to_obj(t.type)
+        field_obj = self._type_to_obj(t.type)
+        obj = _DocCreatorVisitor._decl_to_obj(t.decl, field_obj)
+        struct_variant.fields[t.decl.name.value] = obj
 
     def visit_IdentifierField(self, t):
         struct_variant = self._get_cur_obj()
         field_obj = self._resolve_alias(t.type.value)
-        struct_variant.fields[t.decl.name.value] = field_obj
+        obj = _DocCreatorVisitor._decl_to_obj(t.decl, field_obj)
+        struct_variant.fields[t.decl.name.value] = obj
 
     def visit_StructFull(self, t):
         # This will only be called indirectly if we're visiting the

@@ -9,5 +9,6 @@ if __name__ == '__main__':
     parser = pytsdl.parser.Parser()
     doc = parser.parse(tsdl)
 
-    print(doc.streams[1].event_header['id'].integer)
-    print(doc.streams[1].packet_context['events_discarded'])
+    print(doc.streams[0].event_header['afield']['x'].element.element)
+    print(doc.streams[0].event_header['afield']['x'].element.length)
+    print(doc.streams[0].event_header['afield']['y'].length)
