@@ -1,71 +1,23 @@
 /* CTF 1.8 */
 typealias integer { size = 8; align = 8; signed = false; } := uint8_t;
+typealias integer { size = 8; align = 8; signed = false; } := uint8_t;
 typealias integer { size = 16; align = 8; signed = false; } := uint16_t;
 typealias integer { size = 32; align = 8; signed = false; } := uint32_t;
 typealias integer { size = 64; align = 8; signed = false; } := uint64_t;
 typealias integer { size = 64; align = 8; signed = false; } := unsigned long;
-typealias integer { size = 5; size = 23; align = 1; signed = false; } := uint5_t;
+typealias integer { size = 5; align = 1; signed = false; } := uint5_t;
 typealias integer { size = 27; align = 1; signed = false; base = x; } := uint27_t;
-
 
 trace {
     major = 1;
     minor = 8;
-
-    typealias string := zok;
-
-    typealias enum zokzok : unsigned long {
-        LABEL1,
-        "LABEL2 llz" = 16...101,
-    } := omg;
-
     byte_order = be;
-
     uuid = "fa3cf4f6-9abd-dd42-b220-4d2b440b10e4";
     packet.header := struct {
         uint32_t magic;
         uint8_t  uuid[16];
         uint32_t stream_id;
     };
-};
-
-struct a {
-    unsigned long a;
-    uint32_t b[23];
-    unsigned long c;
-    unsigned long d[23];
-
-    typealias integer { size = 27;  signed = false; } := int;
-
-    enum : int {
-        ONE,
-        TWO,
-        THREE,
-        TEN = 10,
-        ELEVEN,
-        RANGE = 15...192,
-    } field;
-
-    struct a {
-        integer {
-            size = 19;
-            base = x;
-        } len;
-    };
-
-    int length;
-
-    struct {
-        struct a x[23][length];
-        struct a y[a.len];
-    } afield;
-
-    variant allo {
-        int a;
-        int b;
-    };
-
-    variant allo <zokzok> _mokmok;
 };
 
 env {
@@ -128,52 +80,71 @@ struct event_header_compact {
     } v;
 } align(8);
 
-struct event_header_large {
-    enum : uint16_t { compact = 0 ... 65534, extended = 65535 } id;
-    variant <id> {
-        struct {
-            uint32_clock_monotonic_t timestamp;
-        } compact;
-        struct {
-            uint32_t id;
-            uint64_clock_monotonic_t timestamp;
-        } extended;
-    } v;
-} align(8);
-
 stream {
     id = 0;
-    event.header := struct a;
+    event.header := struct event_header_compact;
 };
 
 stream {
     id = 1;
-    event.header := struct event_header_compact;
-    packet.context := struct packet_context;
+    event.header := string;
+    event.context := integer {
+        align = 8;
+        size = 5;
+        encoding = UTF8;
+    };
 };
 
 event {
-    name = "sched_switch";
+    name = "simple_event";
+    id = 0;
+    stream_id = 0;
+    fields := integer {
+        size = 12;
+    };
+};
+
+event {
+    name = "other event";
+    id = 23;
+    stream_id = 0;
+    fields := struct {
+        string a;
+        uint16_t b;
+    } align(64);
+};
+
+event {
+    name = "some_event";
     id = 0;
     stream_id = 1;
+
+    variant named_variant {
+        uint32_t ZERO;
+        string {encoding = ASCII;} ONE;
+        struct {
+            unsigned long field[10];
+        } align(16) ELEVEN;
+    };
+
     fields := struct {
-        integer { size = 8; align = 8; signed = 1; encoding = UTF8; base = 10; } _prev_comm[16];
-        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _prev_tid;
-        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _prev_prio;
-        integer { size = 64; align = 8; signed = 1; encoding = none; base = 10; } _prev_state;
-        integer { size = 8; align = 8; signed = 1; encoding = UTF8; base = 10; } _next_comm[16];
-        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _next_tid;
-        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _next_prio;
+        struct a {
+            unsigned long a;
+            unsigned long b[23];
+        } _some_field;
+
+        typealias enum : unsigned long {
+            ZERO,
+            ONE,
+            TWO,
+            "the TEN" = 10,
+            ELEVEN,
+            "SOME RANGE" = 30...152,
+        } := my_enum;
+
+        struct a _field;
+        struct a _field2[stream.event.header.id][150];
+        my_enum _state;
+        variant named_variant <_state> _yeah;
     };
 };
-
-event {
-    name = "bouh bouh";
-    id = 82;
-    fields := struct {
-        integer { size = 8; align = 8; signed = 1; encoding = UTF8; base = 10; } _prev_comm[16];
-        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _prev_tid;
-        integer { size = 32; align = 8; signed = 1; encoding = none; base = 10; } _prev_prio;
-    };
-};
-

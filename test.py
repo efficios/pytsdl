@@ -7,8 +7,6 @@ if __name__ == '__main__':
         tsdl = f.read()
 
     parser = pytsdl.parser.Parser()
-    doc = parser.parse(tsdl)
+    doc = parser.get_ast(tsdl)
 
-    print(doc.streams[0].event_header['afield']['x'].element.element)
-    print(doc.streams[0].event_header['afield']['x'].element.length)
-    print(doc.streams[0].event_header['afield']['y'].length)
+    print(doc)
