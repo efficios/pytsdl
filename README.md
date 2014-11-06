@@ -1254,6 +1254,7 @@ Current limitations:
 
   * super slow when parsing a big document (pyPEG2 limitation)
   * details of parsing errors are not always useful (pyPEG2 limitation)
+  * partial semantic validation
   * `typedef` is not supported (`typealias` is)
   * pointer syntax is not supported (`struct hello*`, `name->something`,
     etc.)
