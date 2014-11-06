@@ -1671,7 +1671,7 @@ class _DocCreatorVisitor:
         # assign tag to copy now
         variant_copy.tag = self._decode_unary(t.tag.value)
 
-        return variant
+        return variant_copy
 
     def _type_to_obj(self, t):
         return self._type_to_obj_map[type(t)](t)
