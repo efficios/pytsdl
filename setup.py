@@ -21,7 +21,9 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
+import os
 import sys
+import subprocess
 from setuptools import setup
 
 
@@ -31,9 +33,55 @@ if v.major < 3:
     sys.stderr.write('Sorry, pytsdl needs Python 3\n')
     sys.exit(1)
 
+
+def _which(program):
+    import os
+
+    def is_exe(fpath):
+        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+
+    fpath, fname = os.path.split(program)
+
+    if fpath:
+        if is_exe(program):
+            return program
+    else:
+        for path in os.environ['PATH'].split(os.pathsep):
+            path = path.strip('"')
+            exe_file = os.path.join(path, program)
+
+            if is_exe(exe_file):
+                return exe_file
+
+    return None
+
+
+# Because of a tarball wrongly distributed by PyPI, we cannot use
+# install_requires here. Running pip directly works, however.
+if len(sys.argv) > 1 and sys.argv[1] in ['install', 'develop']:
+    pip_exe = _which('pip3')
+
+    if pip_exe is None:
+        pip_exe = _which('pip')
+
+    if pip_exe is None:
+        print('Error: please install pip for Python 3 (pip3 on some distros)',
+              file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        if subprocess.call([pip_exe, 'install', 'pyPEG2', '--upgrade']) != 0:
+            raise RuntimeError()
+    except:
+        print('Error: cannot run "{} install pyPEG2 --upgrade"'.format(pip_exe),
+              file=sys.stderr)
+        sys.exit(1)
+
+
 packages = [
     'pytsdl',
 ]
+
 
 setup(name='pytsdl',
       version=0.1,
