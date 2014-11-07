@@ -1815,9 +1815,14 @@ class Parser:
 
         return ast
 
-    def parse(self, tsdl):
-        ast = self.get_ast(tsdl)
+    @staticmethod
+    def _validate_magic(tsdl):
+        if not tsdl.startswith('/* CTF 1.8'):
+            raise ParseError('TSDL document must start with exactly "/* CTF 1.8"')
 
+    def parse(self, tsdl):
+        Parser._validate_magic(tsdl)
+        ast = self.get_ast(tsdl)
         visitor = _DocCreatorVisitor()
         ast.accept(visitor)
 
