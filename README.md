@@ -1257,6 +1257,7 @@ Current limitations:
   * partial semantic validation
   * `typedef` is not supported (`typealias` is)
   * GNU/C bitfields are not supported
+  * type aliases of sequences and arrays are not supported
   * pointer syntax is not supported (`struct hello*`, `name->something`,
     etc.)
   * only the dot notation is supported for variant tags and sequence
