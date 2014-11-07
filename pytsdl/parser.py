@@ -1227,6 +1227,10 @@ class _DocCreatorVisitor:
     def _is_power_of_two(i):
         return ((i & (i - 1)) == 0) and i > 0
 
+    @staticmethod
+    def _is_size_valid(sz):
+        return sz >= 1
+
     def _reset_state(self):
         self._objs = []
         self._scope_stores = []
@@ -1538,6 +1542,9 @@ class _DocCreatorVisitor:
         if integer.size is None:
             raise ParseError('integer missing size')
 
+        if not _DocCreatorVisitor._is_size_valid(integer.size):
+            raise ParseError('wrong integer size: {}'.format(integer.size))
+
         if integer.align is None:
             if integer.size % 8 == 0:
                 integer.align = 8
@@ -1562,6 +1569,12 @@ class _DocCreatorVisitor:
 
         if floating_point.mant_dig is None:
             raise ParseError('floating point missing mantissa digits')
+
+        if not _DocCreatorVisitor._is_size_valid(floating_point.exp_dig):
+            raise ParseError('wrong floating point exponent size: {}'.format(floating_point.exp_dig))
+
+        if not _DocCreatorVisitor._is_size_valid(floating_point.mant_dig):
+            raise ParseError('wrong floating point mantissa size: {}'.format(floating_point.mant_dig))
 
         if floating_point.align is None:
             if (floating_point.exp_dig + floating_point.mant_dig) % 8 == 0:
