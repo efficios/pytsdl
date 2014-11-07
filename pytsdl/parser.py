@@ -1223,6 +1223,10 @@ class _DocCreatorVisitor:
 
         return _DocCreatorVisitor._encoding_map[s]
 
+    @staticmethod
+    def _is_power_of_two(i):
+        return ((i & (i - 1)) == 0) and i > 0
+
     def _reset_state(self):
         self._objs = []
         self._scope_stores = []
@@ -1534,6 +1538,15 @@ class _DocCreatorVisitor:
         if integer.size is None:
             raise ParseError('integer missing size')
 
+        if integer.align is None:
+            if integer.size % 8 == 0:
+                integer.align = 8
+            else:
+                integer.align = 1
+
+        if not _DocCreatorVisitor._is_power_of_two(integer.align):
+            raise ParseError('wrong integer alignment: {}'.format(integer.align))
+
         return integer
 
     def _floating_point_to_obj(self, t):
@@ -1549,6 +1562,15 @@ class _DocCreatorVisitor:
 
         if floating_point.mant_dig is None:
             raise ParseError('floating point missing mantissa digits')
+
+        if floating_point.align is None:
+            if (floating_point.exp_dig + floating_point.mant_dig) % 8 == 0:
+                floating_point.align = 8
+            else:
+                floating_point.align = 1
+
+        if not _DocCreatorVisitor._is_power_of_two(floating_point.align):
+            raise ParseError('wrong floating point alignment: {}'.format(floating_point.align))
 
         return floating_point
 
@@ -1659,6 +1681,9 @@ class _DocCreatorVisitor:
 
         if t.align:
             struct.align = t.align.value.value
+
+            if not _DocCreatorVisitor._is_power_of_two(struct.align):
+                raise ParseError('wrong structure alignment: {}'.format(struct.align))
 
         # store this struct if it's named
         if t.name is not None:

@@ -43,7 +43,7 @@ class Integer:
         self._byte_order = ByteOrder.NATIVE
         self._base = 10
         self._encoding = Encoding.NONE
-        self._align = 1
+        self._align = None
         self._map = None
         self._size = None
 
@@ -108,7 +108,7 @@ class FloatingPoint:
     def __init__(self):
         self._exp_dig = None
         self._mant_dig = None
-        self._align = 1
+        self._align = None
         self._byte_order = ByteOrder.NATIVE
 
     @property
