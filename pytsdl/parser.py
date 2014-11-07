@@ -1695,13 +1695,23 @@ class _DocCreatorVisitor:
         struct_variant = self._get_cur_obj()
         field_obj = self._type_to_obj(t.type)
         obj = _DocCreatorVisitor._decl_to_obj(t.decl, field_obj)
-        struct_variant.fields[t.decl.name.value] = obj
+        fname = t.decl.name.value
+
+        if fname in struct_variant.fields:
+            raise ParseError('duplicate struct/variant field name: {}'.format(fname))
+
+        struct_variant.fields[fname] = obj
 
     def visit_IdentifierField(self, t):
         struct_variant = self._get_cur_obj()
         field_obj = self._resolve_alias(t.type.value)
         obj = _DocCreatorVisitor._decl_to_obj(t.decl, field_obj)
-        struct_variant.fields[t.decl.name.value] = obj
+        fname = t.decl.name.value
+
+        if fname in struct_variant.fields:
+            raise ParseError('duplicate struct/variant field name: {}'.format(fname))
+
+        struct_variant.fields[fname] = obj
 
     def visit_StructFull(self, t):
         # This will only be called indirectly if we're visiting the
