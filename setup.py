@@ -54,5 +54,7 @@ setup(name='pytsdl',
       description='TSDL parser implemented entirely in Python 3',
       author='Philippe Proulx',
       author_email='eeppeliteloop@gmail.com',
+      license='MIT',
+      keywords='tsdl ctf metadata',
       url='https://github.com/eepp/pytsdl',
       packages=packages)
