@@ -1305,7 +1305,8 @@ class _DocCreatorVisitor:
 
     def visit_Top(self, node):
         self._reset_state()
-        self._doc = self._visit_scope(node, pytsdl.tsdl.Doc())
+        self._doc = pytsdl.tsdl.Doc()
+        self._visit_scope(node, self._doc)
 
         # ensure at least one clock, at least one stream
         if not self._doc.clocks:
@@ -1554,6 +1555,26 @@ class _DocCreatorVisitor:
         if not _DocCreatorVisitor._is_power_of_two(integer.align):
             raise ParseError('wrong integer alignment: {}'.format(integer.align))
 
+        if integer.base not in [2, 8, 10, 16]:
+            raise ParseError('wrong integer base: {}'.format(integer.base))
+
+        # verify clock mapping
+        if integer.map is not None:
+            m = '.'.join(integer.map)
+
+            if len(integer.map) != 3:
+                raise ParseError('wrong integer map: {}'.format(m))
+
+            if integer.map[0] != 'clock':
+                raise ParseError('integer map does not start with "clock": {}"'.format(m))
+
+            if integer.map[2] != 'value':
+                raise ParseError('integer map does not end with "value": {}"'.format(m))
+
+            # search clock
+            if integer.map[1] not in self._doc.clocks:
+                raise ParseError('integer does not map to an existing clock: {}"'.format(m))
+
         return integer
 
     def _floating_point_to_obj(self, t):
@@ -1644,6 +1665,11 @@ class _DocCreatorVisitor:
             obj.length = _DocCreatorVisitor._decode_unary(subscript.value.expr)
         elif type(subscript.value.expr) is ConstNumber:
             obj = pytsdl.tsdl.Array()
+            length = subscript.value.expr.value
+
+            if length < 1:
+                raise ParseError('wrong array length: {}'.format(length))
+
             obj.length = subscript.value.expr.value
         else:
             raise ParseError('invalid subscript type: {}'.format(subscript.value.expr))
