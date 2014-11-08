@@ -50,7 +50,7 @@ packages = [
 
 
 setup(name='pytsdl',
-      version=0.5,
+      version=0.6,
       description='TSDL parser implemented entirely in Python 3',
       author='Philippe Proulx',
       author_email='eeppeliteloop@gmail.com',
