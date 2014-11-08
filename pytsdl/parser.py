@@ -1303,6 +1303,54 @@ class _DocCreatorVisitor:
     def visit(self, node):
         pass
 
+    def _get_native_byte_order(self):
+        if self._doc.trace is None:
+            return None
+
+        if self._doc.trace.byte_order is None:
+            return None
+
+        return self._doc.trace.byte_order
+
+    def _set_byte_order(self, obj):
+        if not hasattr(obj, 'byte_order'):
+            return
+
+        native_bo = self._get_native_byte_order()
+
+        if native_bo is None:
+            raise ParseError('cannot find native byte order (trace.byte_order)')
+
+        if obj.byte_order == pytsdl.tsdl.ByteOrder.NATIVE:
+            obj.byte_order = native_bo
+
+    def _resolve_byte_order(self, obj):
+        if obj is None:
+            return
+
+        if type(obj) is pytsdl.tsdl.Struct or type(obj) is pytsdl.tsdl.Variant:
+            for f in obj.fields.values():
+                self._resolve_byte_order(f)
+        elif type(obj) is pytsdl.tsdl.Array or type(obj) is pytsdl.tsdl.Sequence:
+            self._resolve_byte_order(obj.element)
+        elif type(obj) is pytsdl.tsdl.Enum:
+            self._resolve_byte_order(obj.integer)
+        else:
+            self._set_byte_order(obj)
+
+    @staticmethod
+    def _foreach_scope(doc, cb):
+        cb(doc.trace.packet_header)
+
+        for stream in doc.streams.values():
+            cb(stream.packet_context)
+            cb(stream.event_context)
+            cb(stream.event_header)
+
+            for event in stream.events:
+                cb(event.context)
+                cb(event.fields)
+
     def visit_Top(self, node):
         self._reset_state()
         self._doc = pytsdl.tsdl.Doc()
@@ -1332,6 +1380,9 @@ class _DocCreatorVisitor:
 
             # safe to initialize stream's events dict now
             s.init_events_dict()
+
+        # resolve byte orders
+        _DocCreatorVisitor._foreach_scope(self._doc, self._resolve_byte_order)
 
     def visit_TypeAlias(self, node):
         obj = self._type_to_obj(node.type)
@@ -1414,6 +1465,10 @@ class _DocCreatorVisitor:
             trace.uuid = _DocCreatorVisitor._uuid_from_str(value.value)
         elif key == 'byte_order':
             bo = value[0].value
+
+            if bo == 'native':
+                raise ParseError('trace.byte_order cannot be "native"')
+
             trace.byte_order = _DocCreatorVisitor._byte_order_from_str(bo)
         else:
             # TODO: unknown key?
