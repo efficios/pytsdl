@@ -1872,6 +1872,165 @@ class _DocCreatorVisitor:
         return self._doc
 
 
+class _DocLenTagResolver:
+    def _reset_state(self):
+        self._doc = None
+
+    def _is_scope(self, obj):
+        is_struct = type(obj) is pytsdl.tsdl.Struct
+        is_variant = type(obj) is pytsdl.tsdl.Variant
+
+        return is_struct or is_variant
+
+    def _is_array_or_seq(self, obj):
+        is_array = type(obj) is pytsdl.tsdl.Array
+        is_seq = type(obj) is pytsdl.tsdl.Sequence
+
+        return is_array or is_seq
+
+    def _lentag_to_str(self, lentag):
+        return '.'.join(lentag)
+
+    def _resolve_relative_lentag(self, lentag):
+        if (len(lentag) != 1):
+            return None
+
+        for scope in reversed(self._scopes):
+            if lentag in scope.fields:
+                ftype = scope.fields[lentag]
+
+                if type(ftype) is pytsdl.tsdl.Integer:
+                    return ftype
+
+        return None
+
+    def _resolve_absolute_lentag(self, lentag):
+        scope = self._top_scopes
+
+        for name in lentag[:-1]:
+            print('trying', name)
+            if self._is_scope(scope):
+                print('found scope', scope)
+                if name in scope.fields:
+                    scope = scope.fields[name]
+            elif type(scope) is dict:
+                print('found dict', scope)
+                if name in scope:
+                    scope = scope[name]
+            else:
+                return None
+
+        name = lentag[-1]
+
+        if self._is_scope(scope):
+            if name in scope.fields:
+                ftype = scope.fields[name]
+
+                if type(ftype) is not pytsdl.tsdl.Integer:
+                    return None
+
+                return lentag
+        elif type(scope) is dict:
+            if name in scope:
+                ftype = scope[name]
+
+                if type(ftype) is not pytsdl.tsdl.Integer:
+                    return None
+
+                return lentag
+
+        return None
+
+    def _resolve_lentag(self, lentag):
+        # try absolute match first
+        abslentag = self._resolve_absolute_lentag(lentag)
+
+        if abslentag is not None:
+            return abslentag
+
+        # try relative match now
+        abslentag = self._resolve_relative_lentag(lentag)
+
+        if abslentag is None:
+            fmt = 'cannot resolve {} to an integer field'
+            msg = fmt.format(self._lentag_to_str(lentag))
+            raise ParseError(msg)
+
+        print('RESOLVED!', abslentag)
+
+    def _resolve_scope(self, name, scope):
+        if not self._is_scope(scope):
+            return
+
+        self._scope_names.append(name)
+        self._scopes.append(scope)
+
+        for fname, ftype in scope.fields.items():
+            if self._is_scope(ftype):
+                self._resolve_scope(fname, ftype)
+            elif type(ftype) is pytsdl.tsdl.Sequence:
+                self._resolve_lentag(ftype.length)
+
+        self._scopes.pop()
+        self._scope_names.pop()
+
+    def _resolve_top_scope(self, parent_names, scope):
+        try:
+            self._scopes = []
+            self._scope_names = parent_names[:-1]
+            self._resolve_scope(parent_names[-1], scope)
+        except ParseError as e:
+            msg = '{}: {}'.format(self._lentag_to_str(parent_names), e)
+            raise ParseError(msg)
+
+    def _do_resolve(self):
+        self._resolve_top_scope(['trace', 'packet', 'header'],
+                                   self._doc.trace.packet_header)
+
+        for stream in self._doc.streams.values():
+            self._top_scopes['stream'] = {
+                'packet': {
+                    'context': stream.packet_context,
+                },
+                'event': {
+                    'header': stream.event_header,
+                    'context': stream.event_context,
+                },
+            }
+
+            name = ['stream', 'packet', 'context']
+            self._resolve_top_scope(name, stream.packet_context)
+            name = ['stream', 'event', 'header']
+            self._resolve_top_scope(name, stream.event_header)
+            name = ['stream', 'event', 'context']
+            self._resolve_top_scope(name, stream.event_context)
+
+            for event in stream.events:
+                self._top_scopes['event'] = {
+                    'context': event.context,
+                    'fields': event.fields,
+                }
+
+                name = ['event', 'context']
+                self._resolve_top_scope(name, event.context)
+                name = ['event', 'fields']
+                self._resolve_top_scope(name, event.fields)
+
+    def resolve(self, doc):
+        self._reset_state()
+        self._doc = doc
+
+        self._top_scopes = {
+            'trace': {
+                'packet': {
+                    'header': self._doc.trace.packet_header,
+                },
+            },
+        }
+
+        self._do_resolve()
+
+
 class Parser:
     def get_ast(self, tsdl):
         try:
@@ -1892,5 +2051,8 @@ class Parser:
         ast = self.get_ast(tsdl)
         visitor = _DocCreatorVisitor()
         ast.accept(visitor)
+        doc = visitor._doc
+        resolver = _DocLenTagResolver()
+        resolver.resolve(doc)
 
         return visitor._doc

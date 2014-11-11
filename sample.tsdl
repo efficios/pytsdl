@@ -143,7 +143,7 @@ event {
         } := my_enum;
 
         struct a _field;
-        struct a _field2[stream.event.header.id][150];
+        struct a _field2[stream.event.header.id][event.fields._some_field.s];
         my_enum _state;
         variant named_variant <_state> _yeah;
     };
