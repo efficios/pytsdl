@@ -1716,9 +1716,11 @@ class _DocCreatorVisitor:
     @staticmethod
     def _subscript_to_obj(subscript, element):
         if type(subscript.value.expr) is PostfixExpr:
+            # sequence (dynamic array)
             obj = pytsdl.tsdl.Sequence()
             obj.length = _DocCreatorVisitor._decode_unary(subscript.value.expr)
         elif type(subscript.value.expr) is ConstNumber:
+            # array
             obj = pytsdl.tsdl.Array()
             length = subscript.value.expr.value
 
