@@ -20,10 +20,6 @@ Make sure you have `pip` for Python 3. On Ubuntu, it is called `pip3`:
 
     sudo apt-get install python3-pip
 
-Install pyPEG2 first:
-
-    sudo pip3 install pyPEG2
-
 Install pytsdl:
 
     sudo pip3 install pytsdl
