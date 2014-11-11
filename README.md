@@ -1250,7 +1250,8 @@ Current limitations:
 
   * super slow when parsing a big document (pyPEG2 limitation)
   * details of parsing errors are not always useful (pyPEG2 limitation)
-  * partial semantic validation
+  * sequence lengths and variant tags are not validated (they may point
+    non-existent fields)
   * `typedef` is not supported (`typealias` is)
   * GNU/C bitfields are not supported
   * type aliases of sequences and arrays are not supported
