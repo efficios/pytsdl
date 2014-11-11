@@ -34,18 +34,13 @@ if v.major < 3:
     sys.exit(1)
 
 
-# pyPEG2 needs to be installed manually until their PyPI tarball is
-# fixed for setuptools.
-try:
-    import pypeg2
-except ImportError:
-    sys.stderr.write('Please install pyPEG2 manually:\n\n')
-    sys.stderr.write('    sudo pip3 install pyPEG2\n')
-    sys.exit(1)
-
-
 packages = [
     'pytsdl',
+]
+
+
+install_requires = [
+    'pyPEG2',
 ]
 
 
@@ -57,4 +52,5 @@ setup(name='pytsdl',
       license='MIT',
       keywords='tsdl ctf metadata',
       url='https://github.com/eepp/pytsdl',
-      packages=packages)
+      packages=packages,
+      install_requires=install_requires)
