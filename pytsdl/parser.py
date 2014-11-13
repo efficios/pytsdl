@@ -78,9 +78,10 @@ class Node:
 #   "hello"
 #   "he\tll\x3b;o\n"
 class LiteralString(_SingleValue, Node):
-    grammar = '"', re.compile(r'(\\.|[^"])*'), '"'
+    grammar = re.compile(r'"(\\.|[^"])*"')
 
     def __init__(self, string):
+        string = string[1:-1]
         string = bytes(string, 'utf-8').decode('unicode_escape')
         super().__init__(string)
 
