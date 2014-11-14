@@ -1741,10 +1741,10 @@ class _DocCreatorVisitor:
         if not decl.subscripts:
             return base_obj
 
-        cur_obj = _DocCreatorVisitor._subscript_to_obj(decl.subscripts[0],
+        cur_obj = _DocCreatorVisitor._subscript_to_obj(decl.subscripts[-1],
                                                        base_obj)
 
-        for subscript in decl.subscripts[1:]:
+        for subscript in reversed(decl.subscripts[0:-1]):
             cur_obj = _DocCreatorVisitor._subscript_to_obj(subscript, cur_obj)
 
         return cur_obj
