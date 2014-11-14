@@ -45,7 +45,7 @@ install_requires = [
 
 
 setup(name='pytsdl',
-      version=0.8,
+      version=0.9,
       description='TSDL parser implemented entirely in Python 3',
       author='Philippe Proulx',
       author_email='eeppeliteloop@gmail.com',
