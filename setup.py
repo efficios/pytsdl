@@ -45,12 +45,12 @@ install_requires = [
 
 
 setup(name='pytsdl',
-      version=0.9,
+      version='0.9.1',
       description='TSDL parser implemented entirely in Python 3',
       author='Philippe Proulx',
       author_email='eeppeliteloop@gmail.com',
       license='MIT',
       keywords='tsdl ctf metadata',
-      url='https://github.com/eepp/pytsdl',
+      url='https://github.com/efficios/pytsdl',
       packages=packages,
       install_requires=install_requires)
