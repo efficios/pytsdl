@@ -1536,17 +1536,17 @@ class _DocCreatorVisitor:
             pass
 
     def _value_assign_floating_point(self, key, value):
-        floating_point = self._get_cur_obj()
+        fp = self._get_cur_obj()
 
         if key == 'exp_dig':
-            floating_point.exp_dig = value.value
+            fp.exp_dig = value.value
         elif key == 'mant_dig':
-            floating_point.mant_dig = value.value
+            fp.mant_dig = value.value
         elif key == 'align':
-            floating_point.align = value.value
+            fp.align = value.value
         elif key == 'byte_order':
             bo = value[0].value
-            integer.byte_order = _DocCreatorVisitor._byte_order_from_str(bo)
+            fp.byte_order = _DocCreatorVisitor._byte_order_from_str(bo)
         else:
             raise ParseError('unknown floating point assignment: {}'.format(key))
 
