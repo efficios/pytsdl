@@ -554,7 +554,10 @@ class Enum(Node):
         'enum',
         pypeg2.optional(EnumName),
         ':',
-        pypeg2.some(Identifier),
+        [
+            pypeg2.some(Identifier),
+            Integer,
+        ],
         '{',
         Enumerators,
         '}'
@@ -567,7 +570,11 @@ class Enum(Node):
             self._name = args[0].value
             args.pop(0)
 
-        self._int_type = Identifier(' '.join([i.value for i in args[0:-1]]))
+        if type(args[0]) is Integer:
+            self._int_type = args[0]
+        else:
+            self._int_type = Identifier(' '.join([i.value for i in args[0:-1]]))
+
         self._enumerators = args[-1]
 
     @property
@@ -1679,7 +1686,12 @@ class _DocCreatorVisitor:
                 raise ParseError('duplicate enum label: {}'.format(label))
 
         enum = pytsdl.tsdl.Enum()
-        integer = self._resolve_alias(t.int_type.value)
+
+        if type(t.int_type) is Identifier:
+            integer = self._resolve_alias(t.int_type.value)
+        else:
+            integer = self._integer_to_obj(t.int_type)
+
         enum.integer = integer
         cur = 0
 
