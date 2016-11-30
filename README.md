@@ -1,6 +1,10 @@
 pytsdl
 ======
 
+**WARNING**: This project is **not maintained anymore**. It was
+created to support [barectf](http://barectf.org/) 1. barectf 2 reads
+a YAML configuration file, not a TSDL file.
+
 **pytsdl** is a TSDL (Trace Stream Description Language) parser
 implemented entirely in Python 3. TSDL is the language at the heart of
 [CTF](http://git.efficios.com/?p=ctf.git;a=blob_plain;f=common-trace-format-specification.txt;hb=master),
